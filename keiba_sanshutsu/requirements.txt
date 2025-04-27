@@ -1,0 +1,9 @@
+gym>=0.21.0
+stable-baselines3
+mysql-connector-python
+pandas
+numpy
+shimmy>=2.0
+matplotlib
+seaborn
+python-dotenv 
