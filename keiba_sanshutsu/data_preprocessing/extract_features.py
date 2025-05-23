@@ -12,14 +12,14 @@ def get_connection():
 def extract_features():
     conn = get_connection()
     today = datetime.today()
-    two_years_ago = today - timedelta(days=730)
-    two_years_ago_str = two_years_ago.strftime('%Y%m%d')
+    five_years_ago = today - timedelta(days=1825)
+    five_years_ago_str = five_years_ago.strftime('%Y%m%d')
     # race_shosaiから直近2年分のRACE_CODEを抽出
     df_race_shosai = pd.read_sql("SELECT RACE_CODE, KAISAI_NEN, KAISAI_GAPPI FROM race_shosai", conn)
     # 年月日を連結してint化
     df_race_shosai['DATE'] = df_race_shosai['KAISAI_NEN'].astype(str) + df_race_shosai['KAISAI_GAPPI'].astype(str)
     df_race_shosai['DATE'] = df_race_shosai['DATE'].astype(int)
-    target_race_codes = df_race_shosai[df_race_shosai['DATE'] >= int(two_years_ago_str)]['RACE_CODE'].tolist()
+    target_race_codes = df_race_shosai[df_race_shosai['DATE'] >= int(five_years_ago_str)]['RACE_CODE'].tolist()
     # レース成績（直近2年分）
     if target_race_codes:
         format_strings = ','.join(['%s'] * len(target_race_codes))

@@ -9,6 +9,7 @@ from keiba_sanshutsu.config.db_config import DB_CONFIG
 import numpy as np
 import math
 import re
+from datetime import datetime
 
 # 日本語フォント設定（Macの場合）
 matplotlib.rcParams['font.family'] = 'AppleGothic'
@@ -67,7 +68,8 @@ chaku_dict = dict(zip(target_df['BAMEI'], target_df['KAKUTEI_CHAKUJUN']))
 # 各馬の過去2年分の全レースから複勝率（3位以内率）を算出
 result = []
 for name in target_df['BAMEI']:
-    horse_df = df_race[df_race['BAMEI'] == name]
+    # 当該レースより前のレースのみ抽出
+    horse_df = df_race[(df_race['BAMEI'] == name) & (df_race['RACE_CODE'] != target_race_code)]
     total_race = len(horse_df)
     if total_race == 0:
         fukusho_rate = 0
@@ -101,15 +103,17 @@ for i, v in enumerate(plot_df['複勝率']):
 # 保存用ディレクトリとファイル名生成
 save_dir = os.path.join(os.path.dirname(__file__), '../result_images')
 os.makedirs(save_dir, exist_ok=True)
+# 実行日時を取得
+now_str = datetime.now().strftime('%Y%m%d_%H%M')
 # レース名（例: 2024年5月12日東京1回6日目11R）を生成
 race_name = f"{kaisai_nen}年{kaisai_gappi_fmt}{keibajo_name}{kai}{nichime}{race_no}"
 # ファイル名に使えない文字を除去
 race_name_safe = re.sub(r'[\\/:*?"<>|\s]', '', race_name)
 content_name = '複勝3位以内'
-filename = f"{race_name_safe}_{content_name}.png"
+filename = f"{now_str}_{race_name_safe}_{content_name}.png"
 save_path = os.path.join(save_dir, filename)
 
 plt.tight_layout()
 plt.savefig(save_path)
-plt.show()
+# plt.show()
 print(f"グラフ画像を保存しました: {save_path}") 
