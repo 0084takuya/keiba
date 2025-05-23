@@ -28,8 +28,11 @@ df_race['KYORI'] = pd.to_numeric(df_race['KYORI'], errors='coerce')
 df_race['KYORI_CAT'] = pd.cut(df_race['KYORI'], bins=[0, 1200, 2000, 4000], labels=['短距離', '中距離', '長距離'])
 
 # RACE_CODEごとの出走頭数を集計
-race_counts = df_race.groupby('RACE_CODE')['BAMEI'].count().sort_values(ascending=False)
-target_race_code = race_counts.index[0]
+# race_counts = df_race.groupby('RACE_CODE')['BAMEI'].count().sort_values(ascending=False)
+# target_race_code = race_counts.index[0]
+# 2025年3月1日（KAISAI_NEN=2025, KAISAI_GAPPI=301）の最初のRACE_CODEを選択
+march1_df = df_race[(df_race['KAISAI_NEN_x'] == 2025) & (df_race['KAISAI_GAPPI_x'] == 301)]
+target_race_code = march1_df['RACE_CODE'].iloc[0]
 target_df = df_race[df_race['RACE_CODE'] == target_race_code]
 print('target_df columns:', target_df.columns.tolist())
 
