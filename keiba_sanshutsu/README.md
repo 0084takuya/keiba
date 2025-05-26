@@ -24,3 +24,13 @@ $ python plot_correlation.py \
   --result_table record_master --max_samples 5000 \
   --lookback_number 3 --lookback_unit MONTH
 ```
+
+
+```bash
+python keiba_sanshutsu/data_preprocessing/extract_features.py
+python keiba_sanshutsu/data_preprocessing/clean_data.py
+python keiba_sanshutsu/analysis/basic_stats.py
+python keiba_sanshutsu/analysis/correlation.py
+python keiba_sanshutsu/analysis/visualize.py
+
+```
