@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import shutil
 import base64
-from modules.plot_utils import plot_and_save_graphs, save_script_and_make_run_dir
+from modules.plot_utils import plot_and_save_graphs
 from modules.gpt_utils import ask_gpt41
 from collections import defaultdict
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -26,7 +26,6 @@ import torch.nn.functional as F
 import lightgbm as lgb
 from sklearn.model_selection import KFold
 from matplotlib import font_manager
-from modules.progress_utils import print_progress_bar
 
 # --- .envからAPIキーをロード ---
 load_dotenv()
@@ -178,6 +177,12 @@ def fetch_data():
 
     # 7. コース適性（KEIBAJO_CODE, 距離帯ごとの3着以内率）
     print('=== コース適性（KEIBAJO_CODE, 距離帯ごとの3着以内率）を計算 ===')
+    cursor.execute('''
+        SELECT u.KETTO_TOROKU_BANGO, u.KEIBAJO_CODE, s.KYORI, u.KAKUTEI_CHAKUJUN
+        FROM umagoto_race_joho u
+        JOIN race_shosai s ON u.RACE_CODE = s.RACE_CODE
+        WHERE u.KETTO_TOROKU_BANGO IS NOT NULL AND u.KEIBAJO_CODE IS NOT NULL AND s.KYORI IS NOT NULL AND u.KAKUTEI_CHAKUJUN IS NOT NULL
+    ''')
     for row in cursor.fetchall():
         try:
             kyori = int(row[2])
@@ -515,10 +520,9 @@ def fetch_data_kfold(n_splits=5):
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     all_X, all_y = [], []
     print('=== KFold分割 ===')
-    for i, (train_idx, test_idx) in enumerate(kf.split(rows)):
-        print_progress_bar(i+1, n_splits, bar_length=100, prefix='進捗', suffix='')
-        train_rows = [rows[j] for j in train_idx]
-        test_rows = [rows[j] for j in test_idx]
+    for train_idx, test_idx in kf.split(rows):
+        train_rows = [rows[i] for i in train_idx]
+        test_rows = [rows[i] for i in test_idx]
         # TE計算（train_rowsのみで）
         father_te, track_te, father_count, track_count = {}, {}, {}, {}
         kishu_chokyoshi_te, kishu_chokyoshi_count = {}, {}
@@ -708,9 +712,6 @@ class KeibaDataset(Dataset):
 
 # --- train関数修正 ---
 def train():
-    # ディレクトリ作成と実行ファイルのコピー
-    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/a_value_based_dqn/results')
-
     print('=== train関数 実行開始 ===')
     start_time = time.time()
     X, y, df_raw = fetch_data_kfold(n_splits=5)
@@ -725,7 +726,6 @@ def train():
     X_train_cont, X_train_cat, embedding_info = preprocess_for_embedding(X_train_raw, df_raw.iloc[:split])
     X_test_cont, X_test_cat, _ = preprocess_for_embedding(X_test_raw, df_raw.iloc[split:])
     # --- DQN学習 ---
-    print('DQN学習開始')
     dataset = KeibaDataset(X_train_cont, X_train_cat, y_train)
     loader = DataLoader(dataset, batch_size=64, shuffle=True)
     model = DQN(input_dim=X_train_cont.shape[1], output_dim=2, embedding_info=embedding_info)
@@ -734,7 +734,6 @@ def train():
     train_losses = []
     train_accuracies = []
     for epoch in range(5):
-        print_progress_bar(epoch+1, 5, bar_length=100, prefix='進捗', suffix='')
         epoch_loss = 0
         correct = 0
         total = 0
@@ -751,7 +750,6 @@ def train():
         train_losses.append(epoch_loss / total)
         train_accuracies.append(correct / total)
     # --- DQN単体で予測・評価 ---
-    print('DQN単体で予測・評価開始')
     model.eval()
     with torch.no_grad():
         X_tensor_cont = torch.tensor(X_test_cont, dtype=torch.float32)
@@ -762,6 +760,9 @@ def train():
     f1 = f1_score(y_test, preds)
     print(f'DQN Accuracy: {acc:.4f}, F1: {f1:.4f}')
     # --- evaluateを呼び出し、run_dirに保存 ---
+    from datetime import datetime
+    run_dir = f'sanshutsu_kun/1_predict_models/a_value_based_dqn/results/{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    os.makedirs(run_dir, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(run_dir, 'dqn_keiba_simple.pth'))
     print('モデル保存済み')
     evaluate(model, X_test_cont, X_test_cat, y_test, train_losses, train_accuracies, run_dir, df_raw.iloc[split:])
@@ -770,50 +771,36 @@ def summarize_top_features(df_raw, y_test, run_dir):
     print('=== summarize_top_features関数 実行開始 ===')
     import pandas as pd
     import numpy as np
-    import pymysql
     # y_test: 3着以内=1, それ以外=0
     df = df_raw.copy()
     df['target'] = y_test
-    # --- 馬ID→馬名、騎手ID→騎手名の変換辞書をDBから取得 ---
-    conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, db=DB_NAME, port=DB_PORT, charset='utf8mb4')
-    cursor = conn.cursor()
-    cursor.execute('SELECT KETTO_TOROKU_BANGO, BAMEI FROM kyosoba_master2')
-    umaid2name = {str(row[0]).strip().zfill(10): (row[1] if row[1] else '(不明)') for row in cursor.fetchall()}
-    cursor.execute('SELECT KISHU_CODE, KISHUMEI FROM kishu_master')
-    kishu2name = {str(row[0]).strip().zfill(5): (row[1] if row[1] else '(不明)') for row in cursor.fetchall()}
-    conn.close()
-    print(f'馬名変換例: {list(umaid2name.items())[:3]}')
-    print(f'騎手名変換例: {list(kishu2name.items())[:3]}')
     feature_summaries = []
     for f in FEATURES:
         name = f.name
         desc = f.description
         if name not in df.columns:
             continue
-        col = df[name]
-        # 連続値はビン分割（数値型のみ）
-        if not f.is_categorical and col.nunique() > 10 and np.issubdtype(col.dropna().dtype, np.number):
-            bins = np.linspace(col.min(), col.max(), 6)
-            df[f'{name}_bin'] = pd.cut(col, bins, include_lowest=True)
+        # 連続値はビン分割
+        if not f.is_categorical and df[name].nunique() > 10:
+            bins = np.linspace(df[name].min(), df[name].max(), 6)
+            df[f'{name}_bin'] = pd.cut(df[name], bins, include_lowest=True)
             group_col = f'{name}_bin'
         else:
             group_col = name
         grp = df.groupby(group_col)['target'].agg(['mean','count']).reset_index()
         for _, row in grp.iterrows():
-            # 該当する馬・騎手の組み合わせ（上位3件、名称で）
+            # 該当する馬・騎手の組み合わせ（上位3件）
             mask = (df[group_col] == row[group_col])
-            horses = df.loc[mask, 'KETTO_TOROKU_BANGO'].astype(str).str.strip().str.zfill(10).unique()[:3]
-            horses_name = [umaid2name.get(h, f'{h}(不明)') for h in horses]
-            jockeys = df.loc[mask, 'KISHU_CODE'].astype(str).str.strip().str.zfill(5).unique()[:3] if 'KISHU_CODE' in df.columns else []
-            jockeys_name = [kishu2name.get(k, f'{k}(不明)') for k in jockeys]
+            horses = df.loc[mask, 'KETTO_TOROKU_BANGO'].astype(str).unique()[:3]
+            jockeys = df.loc[mask, 'KISHU_CODE'].astype(str).unique()[:3] if 'KISHU_CODE' in df.columns else []
             feature_summaries.append({
                 'feature': desc,
                 'feature_name': name,
                 'value': str(row[group_col]),
                 'rate': row['mean'],
                 'count': int(row['count']),
-                'horses': ','.join(horses_name),
-                'jockeys': ','.join(jockeys_name)
+                'horses': ','.join(horses),
+                'jockeys': ','.join(jockeys)
             })
     # 件数10以上のみ、3着率降順で上位15
     feature_summaries = [d for d in feature_summaries if d['count'] >= 10]
@@ -916,6 +903,10 @@ F1スコア: {best_f1:.4f}
         f.write(gpt_advice + '\n')
     eval_time = time.time() - start_time
     print(f'【推論・評価所要時間】{eval_time:.2f}秒')
+    # スクリプト自身をrun_dirにコピー
+    import shutil, sys
+    script_path = os.path.abspath(sys.argv[0])
+    shutil.copyfile(script_path, os.path.join(run_dir, os.path.basename(script_path)))
     evaluate_feature_importance(model, X_test_cont, X_test_cat, y_test, run_dir)
     # --- 追加: 特徴量ごとの値別3着以内率ランキングを出力 ---
     summarize_top_features(df_raw, y_test, run_dir)

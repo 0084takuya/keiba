@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import shutil
 import base64
-from modules.plot_utils import plot_and_save_graphs, save_script_and_make_run_dir
+from modules.plot_utils import plot_and_save_graphs
 from modules.gpt_utils import ask_gpt41
 from collections import defaultdict
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -25,8 +25,6 @@ from typing import Optional, Callable, Any, List
 import torch.nn.functional as F
 import lightgbm as lgb
 from sklearn.model_selection import KFold
-from matplotlib import font_manager
-from modules.progress_utils import print_progress_bar
 
 # --- .envからAPIキーをロード ---
 load_dotenv()
@@ -178,6 +176,12 @@ def fetch_data():
 
     # 7. コース適性（KEIBAJO_CODE, 距離帯ごとの3着以内率）
     print('=== コース適性（KEIBAJO_CODE, 距離帯ごとの3着以内率）を計算 ===')
+    cursor.execute('''
+        SELECT u.KETTO_TOROKU_BANGO, u.KEIBAJO_CODE, s.KYORI, u.KAKUTEI_CHAKUJUN
+        FROM umagoto_race_joho u
+        JOIN race_shosai s ON u.RACE_CODE = s.RACE_CODE
+        WHERE u.KETTO_TOROKU_BANGO IS NOT NULL AND u.KEIBAJO_CODE IS NOT NULL AND s.KYORI IS NOT NULL AND u.KAKUTEI_CHAKUJUN IS NOT NULL
+    ''')
     for row in cursor.fetchall():
         try:
             kyori = int(row[2])
@@ -359,17 +363,12 @@ class KeibaDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-# --- DQNネットワーク（Embedding対応） ---
+# --- DQNネットワーク（Dropout/BatchNorm追加） ---
 class DQN(nn.Module):
-    def __init__(self, input_dim, output_dim, embedding_info):
+    def __init__(self, input_dim, output_dim):
         super().__init__()
-        # embedding_info: [(num_embeddings, embedding_dim), ...]
-        self.embeddings = nn.ModuleList([
-            nn.Embedding(num, dim) for num, dim in embedding_info
-        ])
-        emb_total_dim = sum([dim for _, dim in embedding_info])
         self.net = nn.Sequential(
-            nn.Linear(input_dim + emb_total_dim, 64),
+            nn.Linear(input_dim, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.Dropout(0.3),
@@ -379,11 +378,7 @@ class DQN(nn.Module):
             nn.Dropout(0.3),
             nn.Linear(32, output_dim)
         )
-    def forward(self, x_cont, x_cat):
-        # x_cont: [batch, input_dim], x_cat: list of [batch]
-        emb = [emb_layer(x_cat[:,i]) for i, emb_layer in enumerate(self.embeddings)]
-        emb = torch.cat(emb, dim=1) if emb else torch.zeros((x_cont.size(0),0), device=x_cont.device)
-        x = torch.cat([x_cont, emb], dim=1)
+    def forward(self, x):
         return self.net(x)
 
 # --- Focal Loss ---
@@ -458,9 +453,6 @@ def fetch_data_kfold(n_splits=5):
     '''
     cursor.execute(query, (date_min,))
     rows = cursor.fetchall()
-    # DataFrame化
-    columns = db_columns + ['KISHU_CODE','RACE_CODE','KETTO_TOROKU_BANGO','CHOKYOSHI_CODE','KEIBAJO_CODE','KAISAI_NEN','KAISAI_GAPPI']
-    df_raw = pd.DataFrame(rows, columns=columns)
     # 6. 馬の過去5走3着以内率を計算
     print('=== 馬の過去5走3着以内率を計算 ===')
     uma_race = defaultdict(list)
@@ -515,10 +507,9 @@ def fetch_data_kfold(n_splits=5):
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     all_X, all_y = [], []
     print('=== KFold分割 ===')
-    for i, (train_idx, test_idx) in enumerate(kf.split(rows)):
-        print_progress_bar(i+1, n_splits, bar_length=100, prefix='進捗', suffix='')
-        train_rows = [rows[j] for j in train_idx]
-        test_rows = [rows[j] for j in test_idx]
+    for train_idx, test_idx in kf.split(rows):
+        train_rows = [rows[i] for i in train_idx]
+        test_rows = [rows[i] for i in test_idx]
         # TE計算（train_rowsのみで）
         father_te, track_te, father_count, track_count = {}, {}, {}, {}
         kishu_chokyoshi_te, kishu_chokyoshi_count = {}, {}
@@ -662,183 +653,58 @@ def fetch_data_kfold(n_splits=5):
         X[:, num_idx] = scaler.fit_transform(X[:, num_idx])
     fetch_time = time.time() - start_time
     print(f'【データ取得・前処理所要時間】{fetch_time:.2f}秒')
-    return X, y, df_raw
+    return X, y
 
-# --- データ前処理（embedding用index化） ---
-def preprocess_for_embedding(X_raw, df_raw):
-    # embedding対象: 騎手・調教師・馬ID・父系統ID・コースID
-    kishu_list = sorted(df_raw['KISHU_CODE'].unique())
-    chokyoshi_list = sorted(df_raw['CHOKYOSHI_CODE'].unique())
-    uma_list = sorted(df_raw['KETTO_TOROKU_BANGO'].unique())
-    father_list = sorted(df_raw['FATHER_LINEAGE_ID'].unique()) if 'FATHER_LINEAGE_ID' in df_raw else [0]
-    course_list = sorted(df_raw['KEIBAJO_CODE'].unique())
-    kishu2idx = {k:i for i,k in enumerate(kishu_list)}
-    chokyoshi2idx = {k:i for i,k in enumerate(chokyoshi_list)}
-    uma2idx = {k:i for i,k in enumerate(uma_list)}
-    father2idx = {k:i for i,k in enumerate(father_list)}
-    course2idx = {k:i for i,k in enumerate(course_list)}
-    # embedding index列を作成
-    kishu_idx = df_raw['KISHU_CODE'].map(kishu2idx).values
-    chokyoshi_idx = df_raw['CHOKYOSHI_CODE'].map(chokyoshi2idx).values
-    uma_idx = df_raw['KETTO_TOROKU_BANGO'].map(uma2idx).values
-    father_idx = df_raw['FATHER_LINEAGE_ID'].map(father2idx).values if 'FATHER_LINEAGE_ID' in df_raw else np.zeros(len(df_raw), dtype=int)
-    course_idx = df_raw['KEIBAJO_CODE'].map(course2idx).values
-    X_cat = np.stack([kishu_idx, chokyoshi_idx, uma_idx, father_idx, course_idx], axis=1)
-    # 連続値特徴量（embedding対象以外）
-    X_cont = X_raw
-    embedding_info = [
-        (len(kishu_list), 8),
-        (len(chokyoshi_list), 8),
-        (len(uma_list), 8),
-        (len(father_list), 4),
-        (len(course_list), 4),
-    ]
-    return X_cont, X_cat, embedding_info
-
-# --- Datasetクラス修正 ---
-class KeibaDataset(Dataset):
-    def __init__(self, X_cont, X_cat, y):
-        self.X_cont = torch.tensor(X_cont, dtype=torch.float32)
-        self.X_cat = torch.tensor(X_cat, dtype=torch.long)
-        self.y = torch.tensor(y, dtype=torch.long)
-    def __len__(self):
-        return len(self.X_cont)
-    def __getitem__(self, idx):
-        return self.X_cont[idx], self.X_cat[idx], self.y[idx]
-
-# --- train関数修正 ---
+# --- train関数をKFold+アンサンブル対応に ---
 def train():
-    # ディレクトリ作成と実行ファイルのコピー
-    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/a_value_based_dqn/results')
-
     print('=== train関数 実行開始 ===')
     start_time = time.time()
-    X, y, df_raw = fetch_data_kfold(n_splits=5)
+    X, y = fetch_data_kfold(n_splits=5)
     if len(X) == 0:
         print('データがありません')
         return
     # データを8:2で分割
     n = len(X)
     split = int(n * 0.8)
-    X_train_raw, X_test_raw = X[:split], X[split:]
+    X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
-    X_train_cont, X_train_cat, embedding_info = preprocess_for_embedding(X_train_raw, df_raw.iloc[:split])
-    X_test_cont, X_test_cat, _ = preprocess_for_embedding(X_test_raw, df_raw.iloc[split:])
     # --- DQN学習 ---
-    print('DQN学習開始')
-    dataset = KeibaDataset(X_train_cont, X_train_cat, y_train)
+    dataset = KeibaDataset(X_train, y_train)
     loader = DataLoader(dataset, batch_size=64, shuffle=True)
-    model = DQN(input_dim=X_train_cont.shape[1], output_dim=2, embedding_info=embedding_info)
+    model = DQN(input_dim=X.shape[1], output_dim=2)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = FocalLoss(alpha=1, gamma=2)
-    train_losses = []
-    train_accuracies = []
     for epoch in range(5):
-        print_progress_bar(epoch+1, 5, bar_length=100, prefix='進捗', suffix='')
-        epoch_loss = 0
-        correct = 0
-        total = 0
-        for batch_X_cont, batch_X_cat, batch_y in loader:
+        for batch_X, batch_y in loader:
             optimizer.zero_grad()
-            out = model(batch_X_cont, batch_X_cat)
+            out = model(batch_X)
             loss = criterion(out, batch_y)
             loss.backward()
             optimizer.step()
-            epoch_loss += loss.item() * batch_X_cont.size(0)
-            preds = torch.argmax(out, dim=1)
-            correct += (preds == batch_y).sum().item()
-            total += batch_y.size(0)
-        train_losses.append(epoch_loss / total)
-        train_accuracies.append(correct / total)
     # --- DQN単体で予測・評価 ---
-    print('DQN単体で予測・評価開始')
     model.eval()
     with torch.no_grad():
-        X_tensor_cont = torch.tensor(X_test_cont, dtype=torch.float32)
-        X_tensor_cat = torch.tensor(X_test_cat, dtype=torch.long)
-        probs = torch.softmax(model(X_tensor_cont, X_tensor_cat), dim=1)[:,1].cpu().numpy()
+        X_tensor = torch.tensor(X_test, dtype=torch.float32)
+        probs = torch.softmax(model(X_tensor), dim=1)[:,1].cpu().numpy()
         preds = (probs >= 0.5).astype(int)
     acc = accuracy_score(y_test, preds)
     f1 = f1_score(y_test, preds)
     print(f'DQN Accuracy: {acc:.4f}, F1: {f1:.4f}')
     # --- evaluateを呼び出し、run_dirに保存 ---
+    from datetime import datetime
+    run_dir = f'sanshutsu_kun/1_predict_models/a_value_based_dqn/results/{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    os.makedirs(run_dir, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(run_dir, 'dqn_keiba_simple.pth'))
     print('モデル保存済み')
-    evaluate(model, X_test_cont, X_test_cat, y_test, train_losses, train_accuracies, run_dir, df_raw.iloc[split:])
+    evaluate(model, X_test, y_test, [], [], run_dir)
 
-def summarize_top_features(df_raw, y_test, run_dir):
-    print('=== summarize_top_features関数 実行開始 ===')
-    import pandas as pd
-    import numpy as np
-    import pymysql
-    # y_test: 3着以内=1, それ以外=0
-    df = df_raw.copy()
-    df['target'] = y_test
-    # --- 馬ID→馬名、騎手ID→騎手名の変換辞書をDBから取得 ---
-    conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, db=DB_NAME, port=DB_PORT, charset='utf8mb4')
-    cursor = conn.cursor()
-    cursor.execute('SELECT KETTO_TOROKU_BANGO, BAMEI FROM kyosoba_master2')
-    umaid2name = {str(row[0]).strip().zfill(10): (row[1] if row[1] else '(不明)') for row in cursor.fetchall()}
-    cursor.execute('SELECT KISHU_CODE, KISHUMEI FROM kishu_master')
-    kishu2name = {str(row[0]).strip().zfill(5): (row[1] if row[1] else '(不明)') for row in cursor.fetchall()}
-    conn.close()
-    print(f'馬名変換例: {list(umaid2name.items())[:3]}')
-    print(f'騎手名変換例: {list(kishu2name.items())[:3]}')
-    feature_summaries = []
-    for f in FEATURES:
-        name = f.name
-        desc = f.description
-        if name not in df.columns:
-            continue
-        col = df[name]
-        # 連続値はビン分割（数値型のみ）
-        if not f.is_categorical and col.nunique() > 10 and np.issubdtype(col.dropna().dtype, np.number):
-            bins = np.linspace(col.min(), col.max(), 6)
-            df[f'{name}_bin'] = pd.cut(col, bins, include_lowest=True)
-            group_col = f'{name}_bin'
-        else:
-            group_col = name
-        grp = df.groupby(group_col)['target'].agg(['mean','count']).reset_index()
-        for _, row in grp.iterrows():
-            # 該当する馬・騎手の組み合わせ（上位3件、名称で）
-            mask = (df[group_col] == row[group_col])
-            horses = df.loc[mask, 'KETTO_TOROKU_BANGO'].astype(str).str.strip().str.zfill(10).unique()[:3]
-            horses_name = [umaid2name.get(h, f'{h}(不明)') for h in horses]
-            jockeys = df.loc[mask, 'KISHU_CODE'].astype(str).str.strip().str.zfill(5).unique()[:3] if 'KISHU_CODE' in df.columns else []
-            jockeys_name = [kishu2name.get(k, f'{k}(不明)') for k in jockeys]
-            feature_summaries.append({
-                'feature': desc,
-                'feature_name': name,
-                'value': str(row[group_col]),
-                'rate': row['mean'],
-                'count': int(row['count']),
-                'horses': ','.join(horses_name),
-                'jockeys': ','.join(jockeys_name)
-            })
-    # 件数10以上のみ、3着率降順で上位15
-    feature_summaries = [d for d in feature_summaries if d['count'] >= 10]
-    feature_summaries = sorted(feature_summaries, key=lambda x: x['rate'], reverse=True)[:15]
-    # テキスト化
-    lines = []
-    for i, d in enumerate(feature_summaries, 1):
-        lines.append(f"{i}. {d['feature']}（{d['feature_name']}）: {d['value']} → 3着以内率={d['rate']:.2%}（{d['count']}件）")
-        if d['horses']:
-            lines.append(f"   馬例: {d['horses']}")
-        if d['jockeys']:
-            lines.append(f"   騎手例: {d['jockeys']}")
-    txt = '\n'.join(lines)
-    with open(os.path.join(run_dir, 'top15_feature_ranking.txt'), 'w', encoding='utf-8') as f:
-        f.write(txt)
-    return txt
-
-def evaluate(model, X_test_cont, X_test_cat, y_test, train_losses, train_accuracies, run_dir, df_raw):
+def evaluate(model, X_test, y_test, train_losses, train_accuracies, run_dir):
     print('=== evaluate関数 実行開始 ===')
     start_time = time.time()
     model.eval()
     with torch.no_grad():
-        X_tensor_cont = torch.tensor(X_test_cont, dtype=torch.float32)
-        X_tensor_cat = torch.tensor(X_test_cat, dtype=torch.long)
-        outputs = model(X_tensor_cont, X_tensor_cat)
+        X_tensor = torch.tensor(X_test, dtype=torch.float32)
+        outputs = model(X_tensor)
         probs = torch.softmax(outputs, dim=1)[:,1].cpu().numpy()
         preds = torch.argmax(outputs, dim=1).cpu().numpy()
     acc = accuracy_score(y_test, preds)
@@ -916,52 +782,14 @@ F1スコア: {best_f1:.4f}
         f.write(gpt_advice + '\n')
     eval_time = time.time() - start_time
     print(f'【推論・評価所要時間】{eval_time:.2f}秒')
-    evaluate_feature_importance(model, X_test_cont, X_test_cat, y_test, run_dir)
-    # --- 追加: 特徴量ごとの値別3着以内率ランキングを出力 ---
-    summarize_top_features(df_raw, y_test, run_dir)
-
-def evaluate_feature_importance(model, X_test_cont, X_test_cat, y_test, run_dir):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import f1_score
-    # 日本語フォント設定
-    try:
-        font_path = '/usr/share/fonts/opentype/ipafont-gothic/ipagp.ttf'
-        if not os.path.exists(font_path):
-            font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
-        if not os.path.exists(font_path):
-            font_path = '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc'
-        if os.path.exists(font_path):
-            font_manager.fontManager.addfont(font_path)
-            plt.rcParams['font.family'] = font_manager.FontProperties(fname=font_path).get_name()
-    except Exception as e:
-        pass
-    base_pred = torch.argmax(model(torch.tensor(X_test_cont, dtype=torch.float32), torch.tensor(X_test_cat, dtype=torch.long)), dim=1).cpu().numpy()
-    base_f1 = f1_score(y_test, base_pred)
-    importances = []
-    feature_names = [f.name for f in FEATURES]
-    for i in range(X_test_cont.shape[1]):
-        X_perm = X_test_cont.copy()
-        np.random.shuffle(X_perm[:,i])
-        perm_pred = torch.argmax(model(torch.tensor(X_perm, dtype=torch.float32), torch.tensor(X_test_cat, dtype=torch.long)), dim=1).cpu().numpy()
-        perm_f1 = f1_score(y_test, perm_pred)
-        importances.append(base_f1 - perm_f1)
-    # 棒グラフ
-    plt.figure(figsize=(10,6))
-    idx = np.argsort(importances)[::-1]
-    plt.bar(np.array(feature_names)[idx], np.array(importances)[idx])
-    plt.xticks(rotation=90)
-    plt.title('Permutation Importance (F1低下度)')
-    plt.tight_layout()
-    plt.savefig(os.path.join(run_dir, 'feature_importance.png'))
-    plt.close()
+    # スクリプト自身をrun_dirにコピー
+    import shutil, sys
+    script_path = os.path.abspath(sys.argv[0])
+    shutil.copyfile(script_path, os.path.join(run_dir, os.path.basename(script_path)))
 
 # --- 特徴量説明文の自動生成 ---
 def get_feature_description():
     return '\n'.join([f'- {f.description}（{f.name}）' for f in FEATURES])
 
 if __name__ == '__main__':
-    start_time = time.time()
     train() 
-    end_time = time.time()
-    print(f'【実行所要時間】{end_time - start_time:.2f}秒')

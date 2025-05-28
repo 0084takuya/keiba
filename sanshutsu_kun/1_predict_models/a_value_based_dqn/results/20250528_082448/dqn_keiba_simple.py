@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import shutil
 import base64
-from modules.plot_utils import plot_and_save_graphs, save_script_and_make_run_dir
+from modules.plot_utils import plot_and_save_graphs
 from modules.gpt_utils import ask_gpt41
 from collections import defaultdict
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -26,7 +26,6 @@ import torch.nn.functional as F
 import lightgbm as lgb
 from sklearn.model_selection import KFold
 from matplotlib import font_manager
-from modules.progress_utils import print_progress_bar
 
 # --- .envからAPIキーをロード ---
 load_dotenv()
@@ -515,10 +514,9 @@ def fetch_data_kfold(n_splits=5):
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     all_X, all_y = [], []
     print('=== KFold分割 ===')
-    for i, (train_idx, test_idx) in enumerate(kf.split(rows)):
-        print_progress_bar(i+1, n_splits, bar_length=100, prefix='進捗', suffix='')
-        train_rows = [rows[j] for j in train_idx]
-        test_rows = [rows[j] for j in test_idx]
+    for train_idx, test_idx in kf.split(rows):
+        train_rows = [rows[i] for i in train_idx]
+        test_rows = [rows[i] for i in test_idx]
         # TE計算（train_rowsのみで）
         father_te, track_te, father_count, track_count = {}, {}, {}, {}
         kishu_chokyoshi_te, kishu_chokyoshi_count = {}, {}
@@ -708,9 +706,6 @@ class KeibaDataset(Dataset):
 
 # --- train関数修正 ---
 def train():
-    # ディレクトリ作成と実行ファイルのコピー
-    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/a_value_based_dqn/results')
-
     print('=== train関数 実行開始 ===')
     start_time = time.time()
     X, y, df_raw = fetch_data_kfold(n_splits=5)
@@ -725,7 +720,6 @@ def train():
     X_train_cont, X_train_cat, embedding_info = preprocess_for_embedding(X_train_raw, df_raw.iloc[:split])
     X_test_cont, X_test_cat, _ = preprocess_for_embedding(X_test_raw, df_raw.iloc[split:])
     # --- DQN学習 ---
-    print('DQN学習開始')
     dataset = KeibaDataset(X_train_cont, X_train_cat, y_train)
     loader = DataLoader(dataset, batch_size=64, shuffle=True)
     model = DQN(input_dim=X_train_cont.shape[1], output_dim=2, embedding_info=embedding_info)
@@ -734,7 +728,6 @@ def train():
     train_losses = []
     train_accuracies = []
     for epoch in range(5):
-        print_progress_bar(epoch+1, 5, bar_length=100, prefix='進捗', suffix='')
         epoch_loss = 0
         correct = 0
         total = 0
@@ -751,7 +744,6 @@ def train():
         train_losses.append(epoch_loss / total)
         train_accuracies.append(correct / total)
     # --- DQN単体で予測・評価 ---
-    print('DQN単体で予測・評価開始')
     model.eval()
     with torch.no_grad():
         X_tensor_cont = torch.tensor(X_test_cont, dtype=torch.float32)
@@ -762,6 +754,9 @@ def train():
     f1 = f1_score(y_test, preds)
     print(f'DQN Accuracy: {acc:.4f}, F1: {f1:.4f}')
     # --- evaluateを呼び出し、run_dirに保存 ---
+    from datetime import datetime
+    run_dir = f'sanshutsu_kun/1_predict_models/a_value_based_dqn/results/{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    os.makedirs(run_dir, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(run_dir, 'dqn_keiba_simple.pth'))
     print('モデル保存済み')
     evaluate(model, X_test_cont, X_test_cat, y_test, train_losses, train_accuracies, run_dir, df_raw.iloc[split:])
@@ -916,6 +911,10 @@ F1スコア: {best_f1:.4f}
         f.write(gpt_advice + '\n')
     eval_time = time.time() - start_time
     print(f'【推論・評価所要時間】{eval_time:.2f}秒')
+    # スクリプト自身をrun_dirにコピー
+    import shutil, sys
+    script_path = os.path.abspath(sys.argv[0])
+    shutil.copyfile(script_path, os.path.join(run_dir, os.path.basename(script_path)))
     evaluate_feature_importance(model, X_test_cont, X_test_cat, y_test, run_dir)
     # --- 追加: 特徴量ごとの値別3着以内率ランキングを出力 ---
     summarize_top_features(df_raw, y_test, run_dir)
