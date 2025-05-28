@@ -1,0 +1,42 @@
+日本語フォント設定: Osaka
+=== LightGBM競馬3着以内予測 実行開始 ===
+=== fetch_data_time_split関数 実行開始 ===
+メインデータ取得開始
+odds1_tansho取得開始
+odds1_fukusho取得開始
+keito_joho2取得開始
+bataiju取得開始
+kishu_master取得開始
+race_shosai取得開始
+前走情報JOIN開始
+直近3走の着順平均・人気平均計算
+【fetch_data_time_split関数 実行所要時間】83.52秒
+オーバーサンプリング前: [7643 1985]
+SMOTE後: [7643 7643]
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.502866	train's auc: 0.938616	train's average_precision: 0.939441	valid's binary_logloss: 0.488665	valid's auc: 0.949269	valid's average_precision: 0.859286
+Early stopping, best iteration is:
+[2]	train's binary_logloss: 0.664245	train's auc: 0.925112	train's average_precision: 0.919765	valid's binary_logloss: 0.660586	valid's auc: 0.945425	valid's average_precision: 0.865662
+重要度下位30%の特徴量を除外: ['FUTAN_JURYO', 'ninki3mean', 'rentai_rate3', 'WAKUBAN_te']
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.509364	train's auc: 0.932299	train's average_precision: 0.933832	valid's binary_logloss: 0.500231	valid's auc: 0.942244	valid's average_precision: 0.845723
+Early stopping, best iteration is:
+[5]	train's binary_logloss: 0.631479	train's auc: 0.923248	train's average_precision: 0.925604	valid's binary_logloss: 0.627232	valid's auc: 0.945041	valid's average_precision: 0.853649
+[再学習] Recall>=0.85となる最小閾値: 0.510
+[再学習] --- Recall重視評価（閾値=0.510） ---
+Accuracy: 0.8746
+F1 Score: 0.7405
+Recall: 0.8501
+PR-AUC: 0.8536
+Confusion Matrix:
+[[1675  226]
+ [  76  431]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.88      0.92      1901
+           1       0.66      0.85      0.74       507
+
+    accuracy                           0.87      2408
+   macro avg       0.81      0.87      0.83      2408
+weighted avg       0.89      0.87      0.88      2408
+

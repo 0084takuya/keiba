@@ -1,0 +1,86 @@
+日本語フォント設定: Osaka
+=== LightGBM競馬3着以内予測 実行開始 ===
+=== fetch_data_time_split関数 実行開始 ===
+メインデータ取得開始
+odds1_tansho取得開始
+odds1_fukusho取得開始
+keito_joho2取得開始
+bataiju取得開始
+kishu_master取得開始
+race_shosai取得開始
+前走情報JOIN開始
+直近3走の着順平均・人気平均計算
+【fetch_data_time_split関数 実行所要時間】63.09秒
+オーバーサンプリング前: [7643 1985]
+SMOTE後: [7643 7643]
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.513707	train's auc: 0.9304	train's average_precision: 0.931805	valid's binary_logloss: 0.506532	valid's auc: 0.939979	valid's average_precision: 0.848599
+[40]	train's binary_logloss: 0.425498	train's auc: 0.935807	train's average_precision: 0.93762	valid's binary_logloss: 0.409836	valid's auc: 0.944288	valid's average_precision: 0.85971
+[60]	train's binary_logloss: 0.375526	train's auc: 0.939436	train's average_precision: 0.941195	valid's binary_logloss: 0.352934	valid's auc: 0.947646	valid's average_precision: 0.866753
+[80]	train's binary_logloss: 0.343964	train's auc: 0.943671	train's average_precision: 0.945241	valid's binary_logloss: 0.315411	valid's auc: 0.950403	valid's average_precision: 0.873369
+[100]	train's binary_logloss: 0.323567	train's auc: 0.946524	train's average_precision: 0.947827	valid's binary_logloss: 0.292205	valid's auc: 0.951751	valid's average_precision: 0.875403
+Early stopping, best iteration is:
+[87]	train's binary_logloss: 0.335106	train's auc: 0.944893	train's average_precision: 0.946344	valid's binary_logloss: 0.304464	valid's auc: 0.951515	valid's average_precision: 0.876033
+Recall>=0.85となる最小閾値: 0.541
+--- Recall重視評価（閾値=0.541） ---
+Accuracy: 0.9045
+F1 Score: 0.7894
+Recall: 0.8501
+PR-AUC: 0.8760
+Confusion Matrix:
+[[1747  154]
+ [  76  431]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.92      0.94      1901
+           1       0.74      0.85      0.79       507
+
+    accuracy                           0.90      2408
+   macro avg       0.85      0.88      0.86      2408
+weighted avg       0.91      0.90      0.91      2408
+
+--- GPT-4.1からの改善アドバイス ---
+モデル評価やグラフ画像から考えられるLightGBMモデル改善のためのアドバイスは以下の通りです。
+
+---
+
+### 1. **リコール重視の影響とバランス改善**
+- 現在の閾値設定（0.5414）はリコールを重視していますが、1クラス（3着以内）で精度とリコールのバランスがやや崩れています（precision: 0.74, recall: 0.85）。
+- **アクション**：PRカーブやROCカーブを参考に、業務要件に合わせて適切な閾値を再調整すると、より精度・リコールのバランスが取れます。
+
+### 2. **クラス不均衡への対策**
+- クラス0（非3着以内）が多数派で、クラス1（3着以内）が少数派です。混同行列からも、クラス1のFN（False Negative）がまだ多いです。
+- **アクション**：
+  - サンプル重み（class_weight）やSMOTEなどのオーバーサンプリング手法の検討。
+  - 学習データのバランス調整を再確認。
+
+### 3. **ROC・PRカーブの評価**
+- ROCカーブが比較的なめらかに上昇しているが、AUCやカーブの傾きを確認し、モデルの識別力向上余地がないか検討。
+- PRカーブは3着以内（陽性クラス）が少ない場合に重要。カーブの形状が急激に下がっている場合、陽性クラスの検出能力がまだ改善可能。
+- **アクション**：特徴量エンジニアリングや追加特徴量の検討でモデルの予測力を強化。
+
+### 4. **学習曲線の確認と過学習対策**
+- learning_curveをみると、訓練・検証スコアのギャップがある場合は過学習傾向あり。ギャップが小さく、スコアが頭打ちならデータ量や特徴量不足の可能性。
+- **アクション**：
+  - データ量を増やす（過去レースや外部データ活用）。
+  - 特徴量削減や正則化（パラメータtuning）の検討。
+
+### 5. **特徴量の見直し**
+- LightGBMのFeature Importanceで重要度の低い特徴量を整理し、逆にドメイン知識を活かした新たな特徴量を追加することで精度向上が期待できます。
+
+### 6. **モデルパラメータ最適化**
+- パラメータ（num_leaves、max_depth、min_child_samplesなど）をGrid SearchやBayesian Optimizationで再調整し、モデルの表現力と汎化性能を最適化可能。
+
+### 7. **アンサンブルの検討**
+- LightGBM単体で頭打ちの場合、他の手法（例：CatBoost、XGBoostやロジスティック回帰など）とのアンサンブルで性能向上を目指す。
+
+---
+
+#### まとめ
+- 閾値・サンプリングバランス・特徴量・パラメータ最適化・過学習防止・アンサンブルを段階的に見直し、業務要件に合わせてリコール・精度のバランスを再調整してください。  
+- 特に、クラス1のリコール向上とprecisionの維持を両立できるよう、データ前処理・特徴量設計・閾値調整を優先して検討してください。
+
+---
+
+不明点やグラフの具体的な読み取り要望があれば、さらに詳細アドバイスも可能です。
+【実行所要時間】115.81秒

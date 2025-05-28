@@ -1,0 +1,12 @@
+--- Stackingアンサンブル評価 ---
+Accuracy: 0.7930
+F1 Score: 0.0058
+              precision    recall  f1-score   support
+
+         0.0       0.79      1.00      0.88      1313
+         1.0       1.00      0.00      0.01       344
+
+    accuracy                           0.79      1657
+   macro avg       0.90      0.50      0.45      1657
+weighted avg       0.84      0.79      0.70      1657
+

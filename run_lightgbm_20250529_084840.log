@@ -1,0 +1,177 @@
+日本語フォント設定: Osaka
+=== LightGBM競馬3着以内予測 実行開始 ===
+=== fetch_data_time_split関数 実行開始 ===
+メインデータ取得開始
+odds1_tansho取得開始
+odds1_fukusho取得開始
+keito_joho2取得開始
+bataiju取得開始
+kishu_master取得開始
+race_shosai取得開始
+前走情報JOIN開始
+直近3走の着順平均・人気平均計算
+【分割後】y_train分布: target
+0    7643
+1    1985
+Name: count, dtype: int64
+【分割後】y_test分布: target
+0    1901
+1     507
+Name: count, dtype: int64
+【抽出直後】target値の分布: target
+0    9544
+1    2492
+Name: count, dtype: int64
+【特徴量生成後】target値の分布: target
+0    9544
+1    2492
+Name: count, dtype: int64
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.398453	train's auc: 0.925666	train's average_precision: 0.803018	valid's binary_logloss: 0.371119	valid's auc: 0.953234	valid's average_precision: 0.852417
+[40]	train's binary_logloss: 0.373001	train's auc: 0.927007	train's average_precision: 0.803894	valid's binary_logloss: 0.333606	valid's auc: 0.954298	valid's average_precision: 0.858014
+[60]	train's binary_logloss: 0.352579	train's auc: 0.933271	train's average_precision: 0.817507	valid's binary_logloss: 0.301305	valid's auc: 0.959319	valid's average_precision: 0.87146
+[80]	train's binary_logloss: 0.346778	train's auc: 0.935043	train's average_precision: 0.820795	valid's binary_logloss: 0.293055	valid's auc: 0.95988	valid's average_precision: 0.876202
+[100]	train's binary_logloss: 0.337647	train's auc: 0.938202	train's average_precision: 0.826975	valid's binary_logloss: 0.281207	valid's auc: 0.961207	valid's average_precision: 0.880623
+[120]	train's binary_logloss: 0.327985	train's auc: 0.941639	train's average_precision: 0.835828	valid's binary_logloss: 0.269733	valid's auc: 0.963474	valid's average_precision: 0.886922
+[140]	train's binary_logloss: 0.321192	train's auc: 0.943587	train's average_precision: 0.840187	valid's binary_logloss: 0.263401	valid's auc: 0.964237	valid's average_precision: 0.88908
+[160]	train's binary_logloss: 0.313516	train's auc: 0.94579	train's average_precision: 0.846129	valid's binary_logloss: 0.255436	valid's auc: 0.965342	valid's average_precision: 0.892841
+[180]	train's binary_logloss: 0.307657	train's auc: 0.947585	train's average_precision: 0.85088	valid's binary_logloss: 0.249454	valid's auc: 0.966399	valid's average_precision: 0.895836
+[200]	train's binary_logloss: 0.301892	train's auc: 0.949128	train's average_precision: 0.855167	valid's binary_logloss: 0.242592	valid's auc: 0.967172	valid's average_precision: 0.898473
+Did not meet early stopping. Best iteration is:
+[200]	train's binary_logloss: 0.301892	train's auc: 0.949128	train's average_precision: 0.855167	valid's binary_logloss: 0.242592	valid's auc: 0.967172	valid's average_precision: 0.898473
+重要度下位30%の特徴量を除外: ['BATAIJU_DIFF_RATE', 'SEIBETSU_CODE', 'FUTAN_JURYO', 'BATAIJU_DIFF', 'BAREI']
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.401342	train's auc: 0.919462	train's average_precision: 0.782501	valid's binary_logloss: 0.378846	valid's auc: 0.945174	valid's average_precision: 0.840461
+[40]	train's binary_logloss: 0.366839	train's auc: 0.930193	train's average_precision: 0.808336	valid's binary_logloss: 0.325131	valid's auc: 0.958099	valid's average_precision: 0.873612
+[60]	train's binary_logloss: 0.351765	train's auc: 0.933599	train's average_precision: 0.81585	valid's binary_logloss: 0.303522	valid's auc: 0.959437	valid's average_precision: 0.876009
+[80]	train's binary_logloss: 0.340819	train's auc: 0.937297	train's average_precision: 0.824925	valid's binary_logloss: 0.284759	valid's auc: 0.961987	valid's average_precision: 0.88279
+[100]	train's binary_logloss: 0.330077	train's auc: 0.940521	train's average_precision: 0.834315	valid's binary_logloss: 0.268381	valid's auc: 0.96387	valid's average_precision: 0.889315
+[120]	train's binary_logloss: 0.323554	train's auc: 0.942616	train's average_precision: 0.839385	valid's binary_logloss: 0.262431	valid's auc: 0.964635	valid's average_precision: 0.890672
+[140]	train's binary_logloss: 0.31754	train's auc: 0.944304	train's average_precision: 0.843422	valid's binary_logloss: 0.257343	valid's auc: 0.965116	valid's average_precision: 0.892287
+[160]	train's binary_logloss: 0.309851	train's auc: 0.946739	train's average_precision: 0.850851	valid's binary_logloss: 0.247706	valid's auc: 0.967023	valid's average_precision: 0.898797
+[180]	train's binary_logloss: 0.303433	train's auc: 0.948627	train's average_precision: 0.855979	valid's binary_logloss: 0.24106	valid's auc: 0.96812	valid's average_precision: 0.90275
+[200]	train's binary_logloss: 0.299054	train's auc: 0.949827	train's average_precision: 0.858655	valid's binary_logloss: 0.236237	valid's auc: 0.968761	valid's average_precision: 0.905003
+Did not meet early stopping. Best iteration is:
+[200]	train's binary_logloss: 0.299054	train's auc: 0.949827	train's average_precision: 0.858655	valid's binary_logloss: 0.236237	valid's auc: 0.968761	valid's average_precision: 0.905003
+[再学習] Recall>=0.85となる最小閾値: 0.666
+[再学習] --- Recall重視評価（閾値=0.666） ---
+Accuracy: 0.9257
+F1 Score: 0.8280
+Recall: 0.8501
+PR-AUC: 0.9050
+Confusion Matrix:
+[[1798  103]
+ [  76  431]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.95      0.95      1901
+           1       0.81      0.85      0.83       507
+
+    accuracy                           0.93      2408
+   macro avg       0.88      0.90      0.89      2408
+weighted avg       0.93      0.93      0.93      2408
+
+[0]	validation_0-logloss:0.67328
+[20]	validation_0-logloss:0.42826
+[40]	validation_0-logloss:0.31711
+[60]	validation_0-logloss:0.26419
+[80]	validation_0-logloss:0.23254
+[100]	validation_0-logloss:0.21649
+[120]	validation_0-logloss:0.20638
+[140]	validation_0-logloss:0.19908
+[160]	validation_0-logloss:0.19444
+[180]	validation_0-logloss:0.19114
+[199]	validation_0-logloss:0.18826
+[アンサンブル] Recall>=0.85となる最小閾値: 0.625
+[アンサンブル] --- Recall重視評価（閾値=0.625） ---
+Accuracy: 0.9215
+F1 Score: 0.8202
+Recall: 0.8501
+PR-AUC: 0.9239
+Confusion Matrix:
+[[1788  113]
+ [  76  431]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.94      0.95      1901
+           1       0.79      0.85      0.82       507
+
+    accuracy                           0.92      2408
+   macro avg       0.88      0.90      0.88      2408
+weighted avg       0.92      0.92      0.92      2408
+
+--- GPT-4.1からの改善アドバイス ---
+LightGBMによる競馬の3着以内予測モデルの評価結果と各種グラフから、以下の改善アドバイスをまとめます。
+
+---
+
+### 評価指標の分析
+
+- **Recall重視閾値: 0.6254**
+- **精度(Accuracy): 0.9215**
+- **F1スコア: 0.8202**
+- **クラスごとのリコール**
+  - 0（3着外）: recall 0.94
+  - 1（3着以内）: recall 0.85
+
+→ 3着以内(=1)のリコールは高い（85%）が、精度はやや低め（precision 0.79）。  
+→ 全体的にはバランス良いが、3着以内の取りこぼしがまだある。
+
+---
+
+### グラフを踏まえた所感
+
+#### 1. ROC曲線（roc_curve.png）
+- AUCが非常に高そう（曲線が左上に張り付いている）。
+- かなり良好な識別能力があるが、閾値調整でリコールと適合率のトレードオフが効いている。
+
+#### 2. PR曲線（pr_curve.png）
+- Positive（3着以内）が少数クラスと思われるが、Precision-Recall曲線も高い。
+- 閾値によってはさらにリコールを上げられるが、Precisionの低下に注意。
+
+#### 3. 学習曲線（learning_curve.png）
+- 学習・検証スコアが高く、オーバーフィットの兆候は小さい。
+- データ量を増やせば、まだ性能向上の余地あり。
+
+#### 4. 混同行列（confusion_matrix.png）
+- 1のFalse Negative（実際3着以内なのに外した数）はそれなりに残っている。
+- 0のFalse Positive（実際3着外なのに3着以内と予測した数）は少なめ。
+
+---
+
+## 改善アドバイス（簡潔）
+
+1. **特徴量エンジニアリング**
+   - 新たな特徴量（馬場状態、騎手、過去成績の組み合わせ等）を追加し、モデルの表現力を高める。
+   - 既存特徴量の分布・重要度を再検証し、不要・冗長な特徴を削除。
+
+2. **データ量の拡充**
+   - 学習曲線より、追加データで更なる精度向上が見込める。過去のレースデータや他条件も活用。
+
+3. **不均衡データ対策**
+   - 3着以内が少数クラスなら、サンプルウェイト調整やSMOTE、クラスバランス調整を検討。
+   - LightGBMのscale_pos_weightパラメータも要確認。
+
+4. **閾値調整の最適化**
+   - 現在Recall重視だが、利用目的（例えば馬券戦略）に合わせてPrecisionとのバランスを再評価。
+   - F1以外にも、利益最大化等の独自評価指標も検討。
+
+5. **アンサンブルや他モデルの併用**
+   - XGBoostやCatBoost、または単純なロジスティック回帰などとも比較検討。
+   - 複数モデルのアンサンブルで安定性向上も期待。
+
+6. **特徴量の解釈性向上**
+   - SHAP値やPermutation Importanceで、実際に効いている特徴を可視化し、ドメイン知識と照合。
+
+---
+
+### 補足
+
+- モデル自体は非常に高精度。今後は「外れ（取りこぼし）」の詳細分析（False Negativeの事例確認）が効果的。
+- モデルの最終目的（馬券購入や情報提供など）に応じて、リコール・精度のバランス最適化を検討してください。
+
+---
+
+**まとめ：**  
+現状でも高性能ですが、特徴量追加・データ増強・閾値最適化・不均衡対策でさらに精度向上余地あり。モデル解釈性も重視しましょう。
+【実行所要時間】130.67秒

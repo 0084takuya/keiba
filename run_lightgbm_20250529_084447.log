@@ -1,0 +1,24 @@
+日本語フォント設定: Osaka
+=== LightGBM競馬3着以内予測 実行開始 ===
+=== fetch_data_time_split関数 実行開始 ===
+メインデータ取得開始
+odds1_tansho取得開始
+odds1_fukusho取得開始
+keito_joho2取得開始
+bataiju取得開始
+kishu_master取得開始
+race_shosai取得開始
+前走情報JOIN開始
+直近3走の着順平均・人気平均計算
+【分割後】y_train分布: target
+0    7643
+1    1985
+Name: count, dtype: int64
+【分割後】y_test分布: target
+0    1901
+1     507
+Name: count, dtype: int64
+【SMOTE前】y_train分布: target
+0    7643
+1    1985
+Name: count, dtype: int64

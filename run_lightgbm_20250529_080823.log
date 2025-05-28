@@ -1,0 +1,41 @@
+日本語フォント設定: Osaka
+=== LightGBM競馬3着以内予測 実行開始 ===
+=== fetch_data_time_split関数 実行開始 ===
+メインデータ取得開始
+odds1_tansho取得開始
+odds1_fukusho取得開始
+keito_joho2取得開始
+bataiju取得開始
+kishu_master取得開始
+race_shosai取得開始
+前走情報JOIN開始
+直近3走の着順平均・人気平均計算
+【fetch_data_time_split関数 実行所要時間】69.33秒
+オーバーサンプリング前: [7643 1985]
+SMOTE後: [7643 7643]
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.513707	train's auc: 0.9304	train's average_precision: 0.931805	valid's binary_logloss: 0.506532	valid's auc: 0.939979	valid's average_precision: 0.848599
+[40]	train's binary_logloss: 0.425498	train's auc: 0.935807	train's average_precision: 0.93762	valid's binary_logloss: 0.409836	valid's auc: 0.944288	valid's average_precision: 0.85971
+[60]	train's binary_logloss: 0.375526	train's auc: 0.939436	train's average_precision: 0.941195	valid's binary_logloss: 0.352934	valid's auc: 0.947646	valid's average_precision: 0.866753
+[80]	train's binary_logloss: 0.343964	train's auc: 0.943671	train's average_precision: 0.945241	valid's binary_logloss: 0.315411	valid's auc: 0.950403	valid's average_precision: 0.873369
+[100]	train's binary_logloss: 0.323567	train's auc: 0.946524	train's average_precision: 0.947827	valid's binary_logloss: 0.292205	valid's auc: 0.951751	valid's average_precision: 0.875403
+Early stopping, best iteration is:
+[87]	train's binary_logloss: 0.335106	train's auc: 0.944893	train's average_precision: 0.946344	valid's binary_logloss: 0.304464	valid's auc: 0.951515	valid's average_precision: 0.876033
+Recall>=0.85となる最小閾値: 0.541
+--- Recall重視評価（閾値=0.541） ---
+Accuracy: 0.9045
+F1 Score: 0.7894
+Recall: 0.8501
+PR-AUC: 0.8760
+Confusion Matrix:
+[[1747  154]
+ [  76  431]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.92      0.94      1901
+           1       0.74      0.85      0.79       507
+
+    accuracy                           0.90      2408
+   macro avg       0.85      0.88      0.86      2408
+weighted avg       0.91      0.90      0.91      2408
+

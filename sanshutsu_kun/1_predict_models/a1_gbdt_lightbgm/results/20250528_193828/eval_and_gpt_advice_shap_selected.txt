@@ -1,0 +1,12 @@
+--- SHAP特徴量選択後の評価 ---
+Accuracy: 0.7611
+F1 Score: 0.0348
+              precision    recall  f1-score   support
+
+         0.0       0.76      1.00      0.86      8438
+         1.0       0.80      0.02      0.03      2696
+
+    accuracy                           0.76     11134
+   macro avg       0.78      0.51      0.45     11134
+weighted avg       0.77      0.76      0.66     11134
+

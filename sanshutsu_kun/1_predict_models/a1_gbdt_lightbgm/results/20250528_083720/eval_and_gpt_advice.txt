@@ -1,0 +1,14 @@
+--- 評価結果 ---
+Accuracy: 1.0000
+F1 Score: 0.0000
+              precision    recall  f1-score   support
+
+           0       1.00      1.00      1.00      7880
+
+    accuracy                           1.00      7880
+   macro avg       1.00      1.00      1.00      7880
+weighted avg       1.00      1.00      1.00      7880
+
+
+--- GPT-4.1からの改善アドバイス ---
+[GPT-4.1 API Error] The model `gpt-4-vision-preview` has been deprecated, learn more here: https://platform.openai.com/docs/deprecations

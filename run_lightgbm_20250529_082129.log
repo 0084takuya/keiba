@@ -1,0 +1,110 @@
+日本語フォント設定: Osaka
+=== LightGBM競馬3着以内予測 実行開始 ===
+=== fetch_data_time_split関数 実行開始 ===
+メインデータ取得開始
+odds1_tansho取得開始
+odds1_fukusho取得開始
+keito_joho2取得開始
+bataiju取得開始
+kishu_master取得開始
+race_shosai取得開始
+前走情報JOIN開始
+直近3走の着順平均・人気平均計算
+【fetch_data_time_split関数 実行所要時間】82.39秒
+オーバーサンプリング前: [7643 1985]
+SMOTE後: [7643 7643]
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.502866	train's auc: 0.938616	train's average_precision: 0.939441	valid's binary_logloss: 0.488665	valid's auc: 0.949269	valid's average_precision: 0.859286
+Early stopping, best iteration is:
+[2]	train's binary_logloss: 0.664245	train's auc: 0.925112	train's average_precision: 0.919765	valid's binary_logloss: 0.660586	valid's auc: 0.945425	valid's average_precision: 0.865662
+重要度下位30%の特徴量を除外: ['FUTAN_JURYO', 'ninki3mean', 'rentai_rate3', 'WAKUBAN_te']
+Training until validation scores don't improve for 20 rounds
+[20]	train's binary_logloss: 0.509364	train's auc: 0.932299	train's average_precision: 0.933832	valid's binary_logloss: 0.500231	valid's auc: 0.942244	valid's average_precision: 0.845723
+Early stopping, best iteration is:
+[5]	train's binary_logloss: 0.631479	train's auc: 0.923248	train's average_precision: 0.925604	valid's binary_logloss: 0.627232	valid's auc: 0.945041	valid's average_precision: 0.853649
+[再学習] Recall>=0.85となる最小閾値: 0.510
+[再学習] --- Recall重視評価（閾値=0.510） ---
+Accuracy: 0.8746
+F1 Score: 0.7405
+Recall: 0.8501
+PR-AUC: 0.8536
+Confusion Matrix:
+[[1675  226]
+ [  76  431]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.88      0.92      1901
+           1       0.66      0.85      0.74       507
+
+    accuracy                           0.87      2408
+   macro avg       0.81      0.87      0.83      2408
+weighted avg       0.89      0.87      0.88      2408
+
+Recall>=0.85となる最小閾値: 0.503
+--- Recall重視評価（閾値=0.503） ---
+Accuracy: 0.9037
+F1 Score: 0.7906
+Recall: 0.8639
+PR-AUC: 0.8657
+Confusion Matrix:
+[[1738  163]
+ [  69  438]]
+              precision    recall  f1-score   support
+
+           0       0.96      0.91      0.94      1901
+           1       0.73      0.86      0.79       507
+
+    accuracy                           0.90      2408
+   macro avg       0.85      0.89      0.86      2408
+weighted avg       0.91      0.90      0.91      2408
+
+--- GPT-4.1からの改善アドバイス ---
+モデル評価結果および各種グラフ（ROC曲線、PR曲線、学習曲線、混合行列）を踏まえて、LightGBMによる競馬3着以内予測モデルの改善アドバイスを簡潔にまとめます。
+
+### 1. 現状の評価から見える課題
+
+- **Recall重視設定**：Recall（再現率）重視の閾値設定で、3着以内（ポジティブクラス）のRecallは0.86と高いが、Precision（適合率）は0.73と低めです。つまり「3着以内を多く拾えているが、外れも多い」状態です。
+- **クラス不均衡**：混同行列からも分かる通り、3着以内(1)よりもそれ以外(0)が圧倒的に多い典型的なクラス不均衡データです。
+- **ROC/PR曲線**：ROC曲線・PR曲線ともにAUCはまずまずですが、PR曲線は精度がRecall向上とトレードオフになっていることが読み取れます。
+- **学習曲線**：train/testのスコアがあまり離れておらず、過学習の兆候は見られません（むしろややアンダーフィット傾向）。
+- **混合行列**：False Positive（3着以内と予測したが実際は3着外）の数が多め。
+
+---
+
+### 2. 改善アドバイス
+
+#### (1) 特徴量エンジニアリング
+- **新しい特徴量の追加**：血統、騎手、調教、重馬場適性、レース展開、枠順など、競馬ならではの情報をさらに特徴量化してください。
+- **特徴量の重要度分析**：LightGBMのfeature importanceを活用し、不要な特徴量を削減or主要特徴量を深掘りしましょう。
+
+#### (2) クラス不均衡対策
+- **損失関数の重み付け**：`scale_pos_weight`などを調整し、3着以内クラスをより重視する学習に設定。
+- **サンプリング**：SMOTEなどによる少数クラスのオーバーサンプリングや、3着外のアンダーサンプリングで学習データをバランスさせるのも有効です。
+- **閾値最適化**：業務要件に合わせて、F1スコアやPrecision-Recallバランスが最適となる閾値を再検討してください。
+
+#### (3) モデルの高度化
+- **アンサンブル**：LightGBM単体だけでなく、XGBoostやCatBoost、ランダムフォレストとのアンサンブル検討。
+- **スタッキング**：予測力の高いモデルを複数組み合わせたスタッキングも有効です。
+- **ハイパーパラメータチューニング**：learning_rate、num_leaves、max_depth などをGridSearchCVやOptuna等で最適化しましょう。
+
+#### (4) 評価指標の見直し
+- **業務的に重要な指標で再評価**：単なるRecall/F1だけでなく、Precision@K（上位K頭予測の適合率）や、回収率（実際の馬券購入シミュレーション）など競馬に即した評価も考慮してください。
+
+#### (5) データ量の増強
+- **学習曲線から**：データ量を増やすことで、さらなる精度向上が見込めます。過去のレースデータや外部データを積極的に追加しましょう。
+
+---
+
+### 3. まとめ（実施優先度）
+
+1. **特徴量の見直し・追加**（最重要）
+2. **クラス不均衡対策**（損失関数の重み・サンプリング・閾値調整）
+3. **ハイパーパラメータ調整**
+4. **アンサンブル/スタッキング導入**
+5. **評価指標・閾値の業務最適化**
+6. **学習データの拡充**
+
+---
+
+これらを順次試
+【実行所要時間】108.40秒
