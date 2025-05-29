@@ -881,6 +881,15 @@ def get_feature_description():
 
 if __name__ == '__main__':
     start_time = time.time()
-    train() 
+    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/a_value_based_dqn/results')
+    params = {
+        'epochs': 10,
+        'batch_size': 64,
+        'lr': 0.001,
+        'gamma': 0.99,
+        'hidden_dim': 64,
+        'test_ratio': 0.2,
+    }
+    train_dqn(params, run_dir)
     end_time = time.time()
     print(f'【実行所要時間】{end_time - start_time:.2f}秒')

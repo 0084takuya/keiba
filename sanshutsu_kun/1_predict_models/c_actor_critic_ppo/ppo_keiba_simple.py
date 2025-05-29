@@ -149,7 +149,7 @@ class KeibaDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-# --- A2Cネットワーク ---
+# --- PPOネットワーク（A2Cと同じ構成で後ほど修正） ---
 class Actor(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim=64):
         super().__init__()
@@ -180,8 +180,8 @@ class Critic(nn.Module):
     def forward(self, x):
         return self.net(x).squeeze(-1)
 
-# --- A2C学習ループ ---
-def train_a2c(params, run_dir):
+# --- PPO学習ループ（A2Cのまま。後ほどPPO用に修正） ---
+def train_ppo(params, run_dir):
     X_train, y_train, X_test, y_test, train_df, test_df = fetch_data_time_split(test_ratio=params['test_ratio'])
     dataset = KeibaDataset(X_train, y_train)
     loader = DataLoader(dataset, batch_size=params['batch_size'], shuffle=True)
@@ -190,33 +190,56 @@ def train_a2c(params, run_dir):
     actor_optim = optim.Adam(actor.parameters(), lr=params['lr'])
     critic_optim = optim.Adam(critic.parameters(), lr=params['lr'])
     gamma = params['gamma']
+    clip_epsilon = params.get('clip_epsilon', 0.2)
+    ppo_epochs = params.get('ppo_epochs', 4)
     train_losses, train_accuracies = [], []
     for epoch in range(params['epochs']):
         print_progress_bar(epoch+1, params['epochs'], bar_length=50, prefix='進捗', suffix='')
-        total_loss, correct, total = 0, 0, 0
+        states, actions, rewards, old_log_probs, values = [], [], [], [], []
+        correct, total = 0, 0
+        # --- 1エポック分データ収集 ---
         for Xb, yb in loader:
-            # --- Actor ---
             probs = actor(Xb)
             dist = torch.distributions.Categorical(probs)
-            actions = dist.sample()
-            log_probs = dist.log_prob(actions)
-            # --- Critic ---
-            values = critic(Xb)
-            rewards = (actions == yb).float()  # 正解なら1, 不正解なら0
-            next_values = values.detach()  # 単純化
-            advantages = rewards + gamma * next_values - values
-            actor_loss = -(log_probs * advantages.detach()).mean()
-            critic_loss = advantages.pow(2).mean()
+            acts = dist.sample()
+            log_probs = dist.log_prob(acts)
+            vals = critic(Xb)
+            r = (acts == yb).float()  # 正解なら1, 不正解なら0
+            states.append(Xb)
+            actions.append(acts)
+            rewards.append(r)
+            old_log_probs.append(log_probs)
+            values.append(vals)
+            correct += (acts == yb).sum().item()
+            total += Xb.size(0)
+        # --- tensor化 ---
+        states = torch.cat(states)
+        actions = torch.cat(actions)
+        rewards = torch.cat(rewards)
+        old_log_probs = torch.cat(old_log_probs)
+        values = torch.cat(values)
+        # --- Advantage計算 ---
+        advantages = rewards + gamma * values.detach() - values
+        # --- PPOアップデート ---
+        total_loss = 0
+        for _ in range(ppo_epochs):
+            probs = actor(states)
+            dist = torch.distributions.Categorical(probs)
+            new_log_probs = dist.log_prob(actions)
+            ratio = torch.exp(new_log_probs - old_log_probs.detach())
+            surr1 = ratio * advantages.detach()
+            surr2 = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * advantages.detach()
+            actor_loss = -torch.min(surr1, surr2).mean()
+            value_pred = critic(states)
+            critic_loss = (advantages.detach() - (value_pred - values.detach())).pow(2).mean()
             loss = actor_loss + critic_loss
             actor_optim.zero_grad()
             critic_optim.zero_grad()
             loss.backward()
             actor_optim.step()
             critic_optim.step()
-            total_loss += loss.item() * Xb.size(0)
-            correct += (actions == yb).sum().item()
-            total += Xb.size(0)
-        train_losses.append(total_loss / total)
+            total_loss += loss.item()
+        train_losses.append(total_loss / ppo_epochs)
         train_accuracies.append(correct / total)
     # --- 評価 ---
     actor.eval()
@@ -228,7 +251,7 @@ def train_a2c(params, run_dir):
     f1 = f1_score(y_test, preds, zero_division=0)
     recall = recall_score(y_test, preds, zero_division=0)
     report = classification_report(y_test, preds, zero_division=0)
-    print(f'A2C Accuracy: {acc:.4f}, F1: {f1:.4f}, Recall: {recall:.4f}')
+    print(f'PPO Accuracy: {acc:.4f}, F1: {f1:.4f}, Recall: {recall:.4f}')
     # --- グラフ保存 ---
     graph_paths = plot_and_save_graphs(y_test, preds, probs[:,1], train_losses, train_accuracies, run_dir)
     images_b64 = []
@@ -239,7 +262,7 @@ def train_a2c(params, run_dir):
                 images_b64.append((os.path.basename(path), b64img))
     # --- GPT-4.1にアドバイスを問い合わせ ---
     prompt = f"""
-競馬の3着以内に入る馬の特徴をA2Cで学習したモデルの評価結果です。\n\n精度: {acc:.4f}\nF1スコア: {f1:.4f}\nRecall: {recall:.4f}\n詳細:\n{report}\n\n以下のグラフ画像（base64エンコード済み）も参考にして、モデル改善のためのアドバイスを日本語で簡潔に出力してください。\n"""
+競馬の3着以内に入る馬の特徴をPPOで学習したモデルの評価結果です。\n\n精度: {acc:.4f}\nF1スコア: {f1:.4f}\nRecall: {recall:.4f}\n詳細:\n{report}\n\n以下のグラフ画像（base64エンコード済み）も参考にして、モデル改善のためのアドバイスを日本語で簡潔に出力してください。\n"""
     gpt_advice = ask_gpt41(prompt, images_b64)
     with open(os.path.join(run_dir, 'eval_and_gpt_advice.txt'), 'w', encoding='utf-8') as f:
         f.write(f'Accuracy: {acc:.4f}\nF1 Score: {f1:.4f}\nRecall: {recall:.4f}\n')
@@ -250,7 +273,7 @@ def train_a2c(params, run_dir):
 
 if __name__ == '__main__':
     start_time = time.time()
-    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/b_policy_based_a2c/results')
+    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/c_actor_critic_ppo/results')
     params = {
         'epochs': 10,
         'batch_size': 64,
@@ -259,6 +282,6 @@ if __name__ == '__main__':
         'hidden_dim': 64,
         'test_ratio': 0.2,
     }
-    train_a2c(params, run_dir)
+    train_ppo(params, run_dir)
     end_time = time.time()
     print(f'【実行所要時間】{end_time - start_time:.2f}秒') 

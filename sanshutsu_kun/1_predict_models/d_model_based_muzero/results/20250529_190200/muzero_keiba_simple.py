@@ -6,8 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from datetime import datetime, timedelta
-from sklearn.metrics import accuracy_score, f1_score, classification_report, roc_curve, auc, precision_recall_curve, confusion_matrix
-from sklearn.metrics import recall_score
+from sklearn.metrics import accuracy_score, f1_score, classification_report, recall_score
 from dotenv import load_dotenv
 import openai
 import matplotlib.pyplot as plt
@@ -19,9 +18,6 @@ import time
 from modules.plot_utils import plot_and_save_graphs, save_script_and_make_run_dir
 from modules.gpt_utils import ask_gpt41
 from modules.progress_utils import print_progress_bar
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils.class_weight import compute_class_weight
-from imblearn.over_sampling import SMOTE
 
 # --- .envからAPIキーをロード ---
 load_dotenv()
@@ -35,7 +31,7 @@ DB_PASS = os.getenv('KEIBA_DB_PASS', '')
 DB_NAME = os.getenv('KEIBA_DB_NAME', 'mykeibadb')
 DB_PORT = int(os.getenv('KEIBA_DB_PORT', 3306))
 
-target_days = 180  # 直近半年分
+target_days = 90  # 直近3ヶ月分
 
 # --- 特徴量定義（DQN/LightGBMと揃える） ---
 FEATURES = [
@@ -45,7 +41,7 @@ FEATURES = [
     'RACE_KANKAKU', 'ZENSHO_ICHIAKUMA_SA', 'ZENSHO_GYAKUJUN'
 ]
 
-# --- データ抽出・前処理（DQN/LightGBMのfetch_data_time_splitを流用・拡張） ---
+# --- データ抽出・前処理 ---
 def fetch_data_time_split(test_ratio=0.2):
     print('=== fetch_data_time_split関数 実行開始 ===')
     start_time = time.time()
@@ -53,7 +49,6 @@ def fetch_data_time_split(test_ratio=0.2):
     cursor = conn.cursor()
     today = datetime.today()
     date_min = (today - timedelta(days=target_days)).strftime('%Y%m%d')
-    # --- メインデータ ---
     db_columns = ['BAREI','SEIBETSU_CODE','BATAIJU','FUTAN_JURYO','WAKUBAN','KISHU_CODE','CHOKYOSHI_CODE','KETTO_TOROKU_BANGO','RACE_CODE','KAISAI_NEN','KAISAI_GAPPI','KAKUTEI_CHAKUJUN']
     cursor.execute(f'''SELECT {', '.join(db_columns)} FROM umagoto_race_joho WHERE CONCAT(KAISAI_NEN, LPAD(KAISAI_GAPPI, 4, '0')) >= %s''', (date_min,))
     rows = cursor.fetchall()
@@ -61,7 +56,6 @@ def fetch_data_time_split(test_ratio=0.2):
     df_raw['RACE_DATE'] = df_raw['KAISAI_NEN'].astype(str) + df_raw['KAISAI_GAPPI'].astype(str).str.zfill(4)
     df_raw['RACE_DATE'] = pd.to_datetime(df_raw['RACE_DATE'], format='%Y%m%d', errors='coerce')
     df_raw = df_raw.sort_values('RACE_DATE').reset_index(drop=True)
-    # --- race_shosaiをmerge ---
     cursor.execute('SELECT RACE_CODE, KYORI, TRACK_CODE, SHUSSO_TOSU FROM race_shosai')
     race_shosai_df = pd.DataFrame(cursor.fetchall(), columns=['RACE_CODE','KYORI','TRACK_CODE','SHUSSO_TOSU'])
     for col in ['KYORI','TRACK_CODE','SHUSSO_TOSU']:
@@ -70,10 +64,8 @@ def fetch_data_time_split(test_ratio=0.2):
     df_raw['KYORI'] = df_raw['KYORI'].fillna(0)
     df_raw['TRACK_CODE'] = df_raw['TRACK_CODE'].fillna(0)
     df_raw['SHUSSO_TOSU'] = df_raw['SHUSSO_TOSU'].fillna(0)
-    # --- ラベル ---
     df_raw['KAKUTEI_CHAKUJUN_norm'] = df_raw['KAKUTEI_CHAKUJUN'].astype(str).str.strip().replace('　','').replace(' ','').str.translate(str.maketrans('０１２３４５６７８９', '0123456789')).str.lstrip('0')
     df_raw['target'] = df_raw['KAKUTEI_CHAKUJUN_norm'].isin(['1','2','3']).astype(int)
-    # --- 特徴量生成 ---
     def make_features(df, ref_df):
         X, y = [], []
         for idx, (_, row) in enumerate(df.iterrows()):
@@ -123,7 +115,6 @@ def fetch_data_time_split(test_ratio=0.2):
                 feature_dict['RACE_KANKAKU'] = (row['RACE_DATE'] - df.iloc[idx-1]['RACE_DATE']).days
             else:
                 feature_dict['RACE_KANKAKU'] = 0
-            # ダミー: その他特徴量は0埋め
             for col in FEATURES:
                 if col not in feature_dict:
                     feature_dict[col] = 0
@@ -149,86 +140,126 @@ class KeibaDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-# --- A2Cネットワーク ---
-class Actor(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim=64):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
-        )
-    def forward(self, x):
-        x = torch.nan_to_num(x, nan=0.0)  # NaNを0に
-        out = self.net(x)
-        probs = torch.softmax(out, dim=-1)
-        probs = torch.clamp(probs, 1e-8, 1-1e-8)  # 0,1,NaN防止
-        probs = probs / probs.sum(dim=-1, keepdim=True)  # 合計1に
-        # NaNがあれば[0.5,0.5]で置換
-        if torch.isnan(probs).any():
-            probs = torch.where(torch.isnan(probs), torch.full_like(probs, 0.5), probs)
-        return probs
-
-class Critic(nn.Module):
+# --- MuZero主要ネットワーク ---
+class RepresentationNet(nn.Module):
     def __init__(self, input_dim, hidden_dim=64):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
-        )
+        self.fc = nn.Linear(input_dim, hidden_dim)
+        self.relu = nn.ReLU()
     def forward(self, x):
-        return self.net(x).squeeze(-1)
+        return self.relu(self.fc(x))
 
-# --- A2C学習ループ ---
-def train_a2c(params, run_dir):
+class DynamicsNet(nn.Module):
+    def __init__(self, hidden_dim=64):
+        super().__init__()
+        self.fc = nn.Linear(hidden_dim + 1, hidden_dim)  # 状態+行動
+        self.relu = nn.ReLU()
+    def forward(self, state, action):
+        # state: [hidden_dim], action: []
+        x = torch.cat([state, action.unsqueeze(0)], dim=0)  # [hidden_dim+1]
+        return self.relu(self.fc(x))
+
+class PredictionNet(nn.Module):
+    def __init__(self, hidden_dim=64, output_dim=2):
+        super().__init__()
+        self.policy = nn.Linear(hidden_dim, output_dim)
+        self.value = nn.Linear(hidden_dim, 1)
+    def forward(self, state):
+        policy_logits = self.policy(state)
+        value = self.value(state)
+        return policy_logits, value
+
+# --- 簡易ReplayBuffer ---
+class ReplayBuffer:
+    def __init__(self, capacity=10000):
+        self.capacity = capacity
+        self.buffer = []
+    def push(self, item):
+        if len(self.buffer) >= self.capacity:
+            self.buffer.pop(0)
+        self.buffer.append(item)
+    def sample(self, batch_size):
+        idxs = np.random.choice(len(self.buffer), batch_size)
+        return [self.buffer[i] for i in idxs]
+    def __len__(self):
+        return len(self.buffer)
+
+# --- MuZero学習ループ（簡易版） ---
+def train_muzero(params, run_dir):
     X_train, y_train, X_test, y_test, train_df, test_df = fetch_data_time_split(test_ratio=params['test_ratio'])
     dataset = KeibaDataset(X_train, y_train)
     loader = DataLoader(dataset, batch_size=params['batch_size'], shuffle=True)
-    actor = Actor(input_dim=X_train.shape[1], output_dim=2, hidden_dim=params['hidden_dim'])
-    critic = Critic(input_dim=X_train.shape[1], hidden_dim=params['hidden_dim'])
-    actor_optim = optim.Adam(actor.parameters(), lr=params['lr'])
-    critic_optim = optim.Adam(critic.parameters(), lr=params['lr'])
-    gamma = params['gamma']
+    input_dim = X_train.shape[1]
+    hidden_dim = params['hidden_dim']
+    output_dim = 2
+    representation = RepresentationNet(input_dim, hidden_dim)
+    dynamics = DynamicsNet(hidden_dim)
+    prediction = PredictionNet(hidden_dim, output_dim)
+    optimizer = optim.Adam(list(representation.parameters()) + list(dynamics.parameters()) + list(prediction.parameters()), lr=params['lr'])
+    buffer = ReplayBuffer(capacity=2000)
     train_losses, train_accuracies = [], []
     for epoch in range(params['epochs']):
         print_progress_bar(epoch+1, params['epochs'], bar_length=50, prefix='進捗', suffix='')
         total_loss, correct, total = 0, 0, 0
         for Xb, yb in loader:
-            # --- Actor ---
-            probs = actor(Xb)
-            dist = torch.distributions.Categorical(probs)
-            actions = dist.sample()
-            log_probs = dist.log_prob(actions)
-            # --- Critic ---
-            values = critic(Xb)
-            rewards = (actions == yb).float()  # 正解なら1, 不正解なら0
-            next_values = values.detach()  # 単純化
-            advantages = rewards + gamma * next_values - values
-            actor_loss = -(log_probs * advantages.detach()).mean()
-            critic_loss = advantages.pow(2).mean()
-            loss = actor_loss + critic_loss
-            actor_optim.zero_grad()
-            critic_optim.zero_grad()
-            loss.backward()
-            actor_optim.step()
-            critic_optim.step()
-            total_loss += loss.item() * Xb.size(0)
-            correct += (actions == yb).sum().item()
-            total += Xb.size(0)
-        train_losses.append(total_loss / total)
-        train_accuracies.append(correct / total)
+            for i in range(Xb.size(0)):
+                x = Xb[i].unsqueeze(0)  # [1, input_dim]
+                y = yb[i].unsqueeze(0)  # [1]
+                state = representation(x).squeeze(0)  # [hidden_dim]
+                policy_logits, value = prediction(state.unsqueeze(0))
+                policy = torch.softmax(policy_logits, dim=-1)
+                # NaN/inf/負値対策
+                if torch.isnan(policy).any() or torch.isinf(policy).any() or (policy < 0).any():
+                    policy = torch.full_like(policy, 1.0 / policy.shape[1])
+                policy = torch.clamp(policy, 1e-8, 1-1e-8)
+                policy = policy / policy.sum(dim=-1, keepdim=True)
+                if torch.isnan(policy).any() or torch.isinf(policy).any() or (policy < 0).any():
+                    policy = torch.full_like(policy, 1.0 / policy.shape[1])
+                action = torch.multinomial(policy, 1).squeeze(-1)  # []
+                reward = (action == y.squeeze(0)).float()  # []
+                next_state = dynamics(state, action.float())  # [hidden_dim]
+                next_policy_logits, next_value = prediction(next_state.unsqueeze(0))
+                buffer.push((state.detach(), action.detach(), reward.detach(), next_state.detach(), y.squeeze(0).detach()))
+            # --- バッファからサンプルして学習 ---
+            if len(buffer) >= params['batch_size']:
+                batch = buffer.sample(params['batch_size'])
+                s, a, r, ns, y_true = zip(*batch)
+                s = torch.stack(s, dim=0)
+                a = torch.stack(a, dim=0)
+                r = torch.stack(r, dim=0)
+                ns = torch.stack(ns, dim=0)
+                y_true = torch.stack(y_true, dim=0)
+                # 予測
+                policy_logits, value = prediction(s)
+                policy_loss = nn.CrossEntropyLoss()(policy_logits, y_true)
+                value_loss = nn.MSELoss()(value.squeeze(-1), r)
+                loss = policy_loss + value_loss
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item() * s.size(0)
+                correct += (policy_logits.argmax(dim=1) == y_true).sum().item()
+                total += s.size(0)
+        if total > 0:
+            train_losses.append(total_loss / total)
+            train_accuracies.append(correct / total)
+        else:
+            train_losses.append(0)
+            train_accuracies.append(0)
     # --- 評価 ---
-    actor.eval()
+    representation.eval()
+    prediction.eval()
     with torch.no_grad():
         X_tensor = torch.tensor(X_test, dtype=torch.float32)
-        probs = actor(X_tensor).cpu().numpy()
+        state = representation(X_tensor)
+        policy_logits, value = prediction(state)
+        probs = torch.softmax(policy_logits, dim=-1).cpu().numpy()
         preds = np.argmax(probs, axis=1)
     acc = accuracy_score(y_test, preds)
     f1 = f1_score(y_test, preds, zero_division=0)
     recall = recall_score(y_test, preds, zero_division=0)
     report = classification_report(y_test, preds, zero_division=0)
-    print(f'A2C Accuracy: {acc:.4f}, F1: {f1:.4f}, Recall: {recall:.4f}')
+    print(f'MuZero Accuracy: {acc:.4f}, F1: {f1:.4f}, Recall: {recall:.4f}')
     # --- グラフ保存 ---
     graph_paths = plot_and_save_graphs(y_test, preds, probs[:,1], train_losses, train_accuracies, run_dir)
     images_b64 = []
@@ -239,7 +270,7 @@ def train_a2c(params, run_dir):
                 images_b64.append((os.path.basename(path), b64img))
     # --- GPT-4.1にアドバイスを問い合わせ ---
     prompt = f"""
-競馬の3着以内に入る馬の特徴をA2Cで学習したモデルの評価結果です。\n\n精度: {acc:.4f}\nF1スコア: {f1:.4f}\nRecall: {recall:.4f}\n詳細:\n{report}\n\n以下のグラフ画像（base64エンコード済み）も参考にして、モデル改善のためのアドバイスを日本語で簡潔に出力してください。\n"""
+競馬の3着以内に入る馬の特徴をMuZeroで学習したモデルの評価結果です。\n\n精度: {acc:.4f}\nF1スコア: {f1:.4f}\nRecall: {recall:.4f}\n詳細:\n{report}\n\n以下のグラフ画像（base64エンコード済み）も参考にして、モデル改善のためのアドバイスを日本語で簡潔に出力してください。\n"""
     gpt_advice = ask_gpt41(prompt, images_b64)
     with open(os.path.join(run_dir, 'eval_and_gpt_advice.txt'), 'w', encoding='utf-8') as f:
         f.write(f'Accuracy: {acc:.4f}\nF1 Score: {f1:.4f}\nRecall: {recall:.4f}\n')
@@ -250,15 +281,14 @@ def train_a2c(params, run_dir):
 
 if __name__ == '__main__':
     start_time = time.time()
-    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/b_policy_based_a2c/results')
+    run_dir = save_script_and_make_run_dir('sanshutsu_kun/1_predict_models/d_model_based_muzero/results')
     params = {
         'epochs': 10,
         'batch_size': 64,
         'lr': 0.001,
-        'gamma': 0.99,
         'hidden_dim': 64,
         'test_ratio': 0.2,
     }
-    train_a2c(params, run_dir)
+    train_muzero(params, run_dir)
     end_time = time.time()
     print(f'【実行所要時間】{end_time - start_time:.2f}秒') 
