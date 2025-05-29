@@ -684,7 +684,7 @@ def summarize_top_features(df_raw, y_test, run_dir):
     df = df_raw.copy()
     df['target'] = y_test
     # --- 馬ID→馬名、騎手ID→騎手名の変換辞書をDBから取得 ---
-    conn = get_db_connection()
+    conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, db=DB_NAME, port=DB_PORT, charset='utf8mb4')
     cursor = conn.cursor()
     cursor.execute('SELECT KETTO_TOROKU_BANGO, BAMEI FROM kyosoba_master2')
     umaid2name = {str(row[0]).strip().zfill(10): (row[1] if row[1] else '(不明)') for row in cursor.fetchall()}
@@ -878,7 +878,6 @@ def evaluate_feature_importance(model, X_test_cont, X_test_cat, y_test, run_dir)
 def get_feature_description():
     return '\n'.join([f'- {f.description}（{f.name}）' for f in FEATURES])
 
-# 既存のmain部
 if __name__ == '__main__':
     validate_pythonpath('dqn_keiba_simple.py')
     target_days = parse_days_arg(sys.argv, 'dqn_keiba_simple.py')
@@ -893,7 +892,7 @@ if __name__ == '__main__':
         'hidden_dim': 64,
         'test_ratio': 0.2,
     }
-    train()
+    acc, f1, gpt_advice = train_dqn(params, run_dir)
     end_time = time.time()
     print('=== DQNモデル 実行終了 ===')
     print(f'【実行所要時間】{end_time - start_time:.2f}秒')

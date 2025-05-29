@@ -684,7 +684,7 @@ def summarize_top_features(df_raw, y_test, run_dir):
     df = df_raw.copy()
     df['target'] = y_test
     # --- 馬ID→馬名、騎手ID→騎手名の変換辞書をDBから取得 ---
-    conn = get_db_connection()
+    conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, db=DB_NAME, port=DB_PORT, charset='utf8mb4')
     cursor = conn.cursor()
     cursor.execute('SELECT KETTO_TOROKU_BANGO, BAMEI FROM kyosoba_master2')
     umaid2name = {str(row[0]).strip().zfill(10): (row[1] if row[1] else '(不明)') for row in cursor.fetchall()}
