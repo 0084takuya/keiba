@@ -65,8 +65,15 @@ FEATURES: List[Feature] = [
     Feature("TENKO_CODE", None, "馬場状態", is_categorical=True, depends_on="race_tenko"),
     Feature("CHOKYOSHI_3IN_RATE", None, "調教師3着以内率", depends_on="chokyoshi_stats"),
     Feature("FATHER_LINEAGE", None, "父系統ID", is_categorical=True, depends_on="uma_father"),
+    Feature("UMA_5R_3IN_RATE", None, "馬過去5走3着以内率", depends_on="uma_race"),
+    Feature("COURSE_3IN_RATE", None, "コース適性3着以内率", depends_on="uma_course"),
+    Feature("COURSE_UMA_5R_3IN_RATE", None, "コース×馬過去5走3着以内率", depends_on="uma_course_5r"),
+    Feature("FATHER_LINEAGE_TE", None, "父系統ターゲットエンコーディング"),
+    Feature("TRACK_CODE_TE", None, "トラックコードターゲットエンコーディング"),
     Feature("BATAIJU_KYORI", None, "馬体重×距離"),
     Feature("BAREI_FUTAN_JURYO", None, "馬齢×負担重量"),
+    Feature("KISHU_CHOKYOSHI_TE", None, "騎手×調教師ターゲットエンコーディング"),
+    Feature("UMA_COURSE_TE", None, "馬×コースターゲットエンコーディング"),
     Feature("RACE_KANKAKU", None, "レース間隔（日数）"),
     Feature("TENKO_FINE", None, "馬場状態（良=1, それ以外=0"),
     Feature("ZENSHO_ICHIAKUMA_SA", None, "前走一着馬との秒数差"),
@@ -389,11 +396,11 @@ class DQN(nn.Module):
             nn.Linear(input_dim + emb_total_dim, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3),
             nn.Linear(64, 32),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3),
             nn.Linear(32, output_dim)
         )
     def forward(self, x_cont, x_cat):
@@ -626,10 +633,10 @@ def train():
     train_losses = []
     train_accuracies = []
     best_val_loss = float('inf')
-    patience = 1
+    patience = 2
     patience_counter = 0
-    for epoch in range(10):
-        print_progress_bar(epoch+1, 10, bar_length=100, prefix='進捗', suffix='')
+    for epoch in range(20):
+        print_progress_bar(epoch+1, 20, bar_length=100, prefix='進捗', suffix='')
         epoch_loss = 0
         correct = 0
         total = 0

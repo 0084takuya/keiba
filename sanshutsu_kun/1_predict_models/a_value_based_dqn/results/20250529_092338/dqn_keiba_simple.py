@@ -56,21 +56,30 @@ FEATURES: List[Feature] = [
     Feature("SEIBETSU_CODE", "SEIBETSU_CODE", "性別コード", is_categorical=True),
     Feature("BATAIJU", "BATAIJU", "馬体重"),
     Feature("BATAIJU_DIFF", None, "直近体重変化"),
+    Feature("BATAIJU_RANK", None, "同レース内馬体重順位"),
+    Feature("NINKI_RANK", None, "同レース内人気順位"),
     Feature("FUTAN_JURYO", "FUTAN_JURYO", "負担重量"),
+    Feature("TANSHO_NINKIJUN", "TANSHO_NINKIJUN", "単勝人気順"),
     Feature("WAKUBAN", "WAKUBAN", "枠順", is_categorical=True),
     Feature("KYORI", None, "距離", depends_on="race_shosai"),
     Feature("TRACK_CODE", None, "芝/ダート（トラックコード）", is_categorical=True, depends_on="race_shosai"),
     Feature("SHUSSO_TOSU", None, "頭数", depends_on="race_shosai"),
+    # Feature("FUKUSHO_NINKIJUN", None, "複勝人気順", depends_on="umagoto_race_joho"),  # 一時的に除外
     Feature("KISHU_3IN_RATE", None, "騎手3着以内率", depends_on="kishu_stats"),
     Feature("TENKO_CODE", None, "馬場状態", is_categorical=True, depends_on="race_tenko"),
     Feature("CHOKYOSHI_3IN_RATE", None, "調教師3着以内率", depends_on="chokyoshi_stats"),
     Feature("FATHER_LINEAGE", None, "父系統ID", is_categorical=True, depends_on="uma_father"),
+    Feature("UMA_5R_3IN_RATE", None, "馬過去5走3着以内率", depends_on="uma_race"),
+    Feature("COURSE_3IN_RATE", None, "コース適性3着以内率", depends_on="uma_course"),
+    Feature("COURSE_UMA_5R_3IN_RATE", None, "コース×馬過去5走3着以内率", depends_on="uma_course_5r"),
+    Feature("FATHER_LINEAGE_TE", None, "父系統ターゲットエンコーディング"),
+    Feature("TRACK_CODE_TE", None, "トラックコードターゲットエンコーディング"),
     Feature("BATAIJU_KYORI", None, "馬体重×距離"),
     Feature("BAREI_FUTAN_JURYO", None, "馬齢×負担重量"),
+    Feature("KISHU_CHOKYOSHI_TE", None, "騎手×調教師ターゲットエンコーディング"),
+    Feature("UMA_COURSE_TE", None, "馬×コースターゲットエンコーディング"),
     Feature("RACE_KANKAKU", None, "レース間隔（日数）"),
-    Feature("TENKO_FINE", None, "馬場状態（良=1, それ以外=0"),
-    Feature("ZENSHO_ICHIAKUMA_SA", None, "前走一着馬との秒数差"),
-    Feature("ZENSHO_GYAKUJUN", None, "前走逆順順位"),
+    Feature("TENKO_FINE", None, "馬場状態（良=1, それ以外=0）"),
 ]
 
 # データ抽出期間（日数）
@@ -129,15 +138,11 @@ def fetch_data():
     # 5. メインデータ取得
     print('=== メインデータ取得 ===')
     db_columns = [f.db_column for f in FEATURES if f.db_column]
-    # KAKUTEI_CHAKUJUNを必ず含める
-    if 'KAKUTEI_CHAKUJUN' not in db_columns:
-        db_columns.append('KAKUTEI_CHAKUJUN')
     query = f'''
         SELECT {', '.join(db_columns)}, KISHU_CODE, RACE_CODE, KETTO_TOROKU_BANGO, CHOKYOSHI_CODE, KEIBAJO_CODE, KAISAI_NEN, KAISAI_GAPPI
         FROM umagoto_race_joho
         WHERE CONCAT(KAISAI_NEN, LPAD(KAISAI_GAPPI, 4, '0')) >= %s
-        AND {' AND '.join([f'{col} IS NOT NULL' for col in db_columns if col != 'KAKUTEI_CHAKUJUN'])}
-        AND KISHU_CODE IS NOT NULL AND RACE_CODE IS NOT NULL AND KETTO_TOROKU_BANGO IS NOT NULL AND CHOKYOSHI_CODE IS NOT NULL AND KEIBAJO_CODE IS NOT NULL
+        AND KISHU_CODE IS NOT NULL AND RACE_CODE IS NOT NULL AND KETTO_TOROKU_BANGO IS NOT NULL AND CHOKYOSHI_CODE IS NOT NULL AND KEIBAJO_CODE IS NOT NULL AND KAISAI_NEN IS NOT NULL AND KAISAI_GAPPI IS NOT NULL
     '''
     cursor.execute(query, (date_min,))
     rows = cursor.fetchall()
@@ -324,32 +329,13 @@ def fetch_data():
             else:
                 bataiju_diff = 0
             feature_dict['BATAIJU_DIFF'] = bataiju_diff
-            # --- 追加: 前走一着馬との秒数差・前走逆順順位 ---
-            # 前走レースを特定
-            uma_hist = ref[ref['KETTO_TOROKU_BANGO'] == ketto_toroku_bango].sort_values('RACE_DATE')
-            if len(uma_hist) > 0:
-                zensho = uma_hist.iloc[-1]
-                zensho_race_code = zensho['RACE_CODE']
-                # 前走レースの全馬データ
-                zensho_race = ref[ref['RACE_CODE'] == zensho_race_code]
-                # 秒数差
-                try:
-                    my_time = float(zensho['RACE_TIME']) if 'RACE_TIME' in zensho and zensho['RACE_TIME'] not in [None, '', 'nan'] else None
-                    ichaku_time = zensho_race[zensho_race['KAKUTEI_CHAKUJUN'] == '1']['RACE_TIME']
-                    ichaku_time = float(ichaku_time.iloc[0]) if len(ichaku_time) > 0 else None
-                    feature_dict['ZENSHO_ICHIAKUMA_SA'] = my_time - ichaku_time if my_time is not None and ichaku_time is not None else 0
-                except:
-                    feature_dict['ZENSHO_ICHIAKUMA_SA'] = 0
-                # 逆順順位
-                try:
-                    n_tousu = len(zensho_race)
-                    chaku = int(zensho['KAKUTEI_CHAKUJUN']) if str(zensho['KAKUTEI_CHAKUJUN']).isdigit() else None
-                    feature_dict['ZENSHO_GYAKUJUN'] = n_tousu - chaku + 1 if chaku is not None else 0
-                except:
-                    feature_dict['ZENSHO_GYAKUJUN'] = 0
-            else:
-                feature_dict['ZENSHO_ICHIAKUMA_SA'] = 0
-                feature_dict['ZENSHO_GYAKUJUN'] = 0
+            # 同レース内での馬体重順位
+            race_mask = (df['RACE_CODE'] == row['RACE_CODE'])
+            race_bataiju = df.loc[race_mask, 'BATAIJU']
+            feature_dict['BATAIJU_RANK'] = race_bataiju.rank(ascending=False)[i] if not np.isnan(row['BATAIJU']) else 0
+            # 同レース内での人気順位
+            race_ninki = df.loc[race_mask, 'TANSHO_NINKIJUN']
+            feature_dict['NINKI_RANK'] = race_ninki.rank(ascending=True)[i] if not np.isnan(row['TANSHO_NINKIJUN']) else 0
             X.append([feature_dict[f.name] for f in FEATURES])
             chaku = int(row.iloc[4]) if len(row) > 4 else 0
             y.append(1 if chaku in [1,2,3] else 0)
@@ -389,11 +375,11 @@ class DQN(nn.Module):
             nn.Linear(input_dim + emb_total_dim, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3),
             nn.Linear(64, 32),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3),
             nn.Linear(32, output_dim)
         )
     def forward(self, x_cont, x_cat):
@@ -430,25 +416,18 @@ def fetch_data_time_split(test_ratio=0.2):
     today = datetime.today()
     date_min = (today - timedelta(days=target_days)).strftime('%Y%m%d')
     db_columns = [f.db_column for f in FEATURES if f.db_column]
-    # KAKUTEI_CHAKUJUNを必ず含める
-    if 'KAKUTEI_CHAKUJUN' not in db_columns:
-        db_columns.append('KAKUTEI_CHAKUJUN')
     print('=== データ抽出開始 ===')
-    select_columns = db_columns + ['KISHU_CODE','RACE_CODE','KETTO_TOROKU_BANGO','CHOKYOSHI_CODE','KEIBAJO_CODE','KAISAI_NEN','KAISAI_GAPPI']
     query = f'''
-        SELECT {', '.join(select_columns)}
+        SELECT {', '.join(db_columns)}, KISHU_CODE, RACE_CODE, KETTO_TOROKU_BANGO, CHOKYOSHI_CODE, KEIBAJO_CODE, KAISAI_NEN, KAISAI_GAPPI
         FROM umagoto_race_joho
         WHERE CONCAT(KAISAI_NEN, LPAD(KAISAI_GAPPI, 4, '0')) >= %s
-        AND {' AND '.join([f'{col} IS NOT NULL' for col in db_columns if col != 'KAKUTEI_CHAKUJUN'])}
+        AND {' AND '.join([f'{col} IS NOT NULL' for col in db_columns])}
         AND KISHU_CODE IS NOT NULL AND RACE_CODE IS NOT NULL AND KETTO_TOROKU_BANGO IS NOT NULL AND CHOKYOSHI_CODE IS NOT NULL AND KEIBAJO_CODE IS NOT NULL
     '''
     cursor.execute(query, (date_min,))
     rows = cursor.fetchall()
-    columns = select_columns
+    columns = db_columns + ['KISHU_CODE','RACE_CODE','KETTO_TOROKU_BANGO','CHOKYOSHI_CODE','KEIBAJO_CODE','KAISAI_NEN','KAISAI_GAPPI']
     df_raw = pd.DataFrame(rows, columns=columns)
-    assert 'KAKUTEI_CHAKUJUN' in df_raw.columns, 'KAKUTEI_CHAKUJUNカラムが存在しません'
-    # 正規化: 全角→半角、空白除去、先頭ゼロ除去
-    df_raw['KAKUTEI_CHAKUJUN'] = df_raw['KAKUTEI_CHAKUJUN'].astype(str).str.strip().replace('　','').replace(' ','').str.translate(str.maketrans('０１２３４５６７８９', '0123456789')).str.lstrip('0')
     df_raw['RACE_DATE'] = df_raw['KAISAI_NEN'].astype(str) + df_raw['KAISAI_GAPPI'].astype(str).str.zfill(4)
     df_raw['RACE_DATE'] = pd.to_datetime(df_raw['RACE_DATE'], format='%Y%m%d', errors='coerce')
     df_raw = df_raw.sort_values('RACE_DATE').reset_index(drop=True)
@@ -481,16 +460,16 @@ def fetch_data_time_split(test_ratio=0.2):
                     feature_dict[f.name] = float(val) if val is not None and str(val).replace('.', '', 1).isdigit() else 0
             # --- 騎手3着率 ---
             kishu_code = row['KISHU_CODE']
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0:
                 kishu_3in = ref[ref['KISHU_CODE'] == kishu_code]
-                feature_dict['KISHU_3IN_RATE'] = kishu_3in['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if 'KAKUTEI_CHAKUJUN' in kishu_3in else 0
+                feature_dict['KISHU_3IN_RATE'] = kishu_3in['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if 'KAKUTEI_CHAKUJUN' in kishu_3in else 0
             else:
                 feature_dict['KISHU_3IN_RATE'] = 0
             # --- 調教師3着率 ---
             chokyoshi_code = row['CHOKYOSHI_CODE']
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0:
                 chokyoshi_3in = ref[ref['CHOKYOSHI_CODE'] == chokyoshi_code]
-                feature_dict['CHOKYOSHI_3IN_RATE'] = chokyoshi_3in['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if 'KAKUTEI_CHAKUJUN' in chokyoshi_3in else 0
+                feature_dict['CHOKYOSHI_3IN_RATE'] = chokyoshi_3in['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if 'KAKUTEI_CHAKUJUN' in chokyoshi_3in else 0
             else:
                 feature_dict['CHOKYOSHI_3IN_RATE'] = 0
             # --- 父系統ID ---
@@ -500,53 +479,53 @@ def fetch_data_time_split(test_ratio=0.2):
             else:
                 feature_dict['FATHER_LINEAGE'] = 0
             # --- 父系統TE ---
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0:
                 father_id = ketto_toroku_bango  # 仮: 本来は父ID列が必要
                 if 'FATHER_LINEAGE' in row:
                     father_id = row['FATHER_LINEAGE']
                 father_ref = ref[ref['KETTO_TOROKU_BANGO'] == father_id]
-                feature_dict['FATHER_LINEAGE_TE'] = father_ref['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if len(father_ref) > 0 else 0
+                feature_dict['FATHER_LINEAGE_TE'] = father_ref['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if len(father_ref) > 0 else 0
             else:
                 feature_dict['FATHER_LINEAGE_TE'] = 0
             # --- トラックコードTE ---
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns and 'TRACK_CODE' in ref.columns:
+            if len(ref) > 0 and 'TRACK_CODE' in row:
                 track_code = row['TRACK_CODE']
                 track_ref = ref[ref['TRACK_CODE'] == track_code]
-                feature_dict['TRACK_CODE_TE'] = track_ref['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if len(track_ref) > 0 else 0
+                feature_dict['TRACK_CODE_TE'] = track_ref['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if len(track_ref) > 0 else 0
             else:
                 feature_dict['TRACK_CODE_TE'] = 0
             # --- 騎手×調教師TE ---
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0:
                 kc_ref = ref[(ref['KISHU_CODE'] == kishu_code) & (ref['CHOKYOSHI_CODE'] == chokyoshi_code)]
-                feature_dict['KISHU_CHOKYOSHI_TE'] = kc_ref['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if len(kc_ref) > 0 else 0
+                feature_dict['KISHU_CHOKYOSHI_TE'] = kc_ref['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if len(kc_ref) > 0 else 0
             else:
                 feature_dict['KISHU_CHOKYOSHI_TE'] = 0
             # --- 馬×コースTE ---
             keibajo_code = row['KEIBAJO_CODE'] if 'KEIBAJO_CODE' in row else 0
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0:
                 uma_course_ref = ref[(ref['KETTO_TOROKU_BANGO'] == ketto_toroku_bango) & (ref['KEIBAJO_CODE'] == keibajo_code)]
-                feature_dict['UMA_COURSE_TE'] = uma_course_ref['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if len(uma_course_ref) > 0 else 0
+                feature_dict['UMA_COURSE_TE'] = uma_course_ref['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if len(uma_course_ref) > 0 else 0
             else:
                 feature_dict['UMA_COURSE_TE'] = 0
             # --- 馬過去5走3着以内率 ---
-            if len(ref) > 0 and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0:
                 uma_hist = ref[ref['KETTO_TOROKU_BANGO'] == ketto_toroku_bango].sort_values('RACE_DATE')
                 past5 = uma_hist.tail(5)['KAKUTEI_CHAKUJUN'] if len(uma_hist) > 0 else []
-                feature_dict['UMA_5R_3IN_RATE'] = past5.isin(['1','2','3']).mean() if len(past5) > 0 else 0
+                feature_dict['UMA_5R_3IN_RATE'] = past5.isin([1,2,3]).mean() if len(past5) > 0 else 0
             else:
                 feature_dict['UMA_5R_3IN_RATE'] = 0
             # --- コース適性3着以内率 ---
-            if len(ref) > 0 and 'KYORI' in ref.columns and 'KEIBAJO_CODE' in ref.columns and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0 and 'KYORI' in ref.columns and 'KEIBAJO_CODE' in ref.columns:
                 kyori = row['KYORI'] if 'KYORI' in row else 0
                 course_ref = ref[(ref['KEIBAJO_CODE'] == keibajo_code) & (ref['KYORI'] == kyori)]
-                feature_dict['COURSE_3IN_RATE'] = course_ref['KAKUTEI_CHAKUJUN'].isin(['1','2','3']).mean() if len(course_ref) > 0 else 0
+                feature_dict['COURSE_3IN_RATE'] = course_ref['KAKUTEI_CHAKUJUN'].isin([1,2,3]).mean() if len(course_ref) > 0 else 0
             else:
                 feature_dict['COURSE_3IN_RATE'] = 0
             # --- コース×馬過去5走3着以内率 ---
-            if len(ref) > 0 and 'KYORI' in ref.columns and 'KEIBAJO_CODE' in ref.columns and 'KAKUTEI_CHAKUJUN' in ref.columns:
+            if len(ref) > 0 and 'KYORI' in ref.columns and 'KEIBAJO_CODE' in ref.columns:
                 course_uma_hist = ref[(ref['KETTO_TOROKU_BANGO'] == ketto_toroku_bango) & (ref['KEIBAJO_CODE'] == keibajo_code)].sort_values('RACE_DATE')
                 course_uma5 = course_uma_hist.tail(5)['KAKUTEI_CHAKUJUN'] if len(course_uma_hist) > 0 else []
-                feature_dict['COURSE_UMA_5R_3IN_RATE'] = course_uma5.isin(['1','2','3']).mean() if len(course_uma5) > 0 else 0
+                feature_dict['COURSE_UMA_5R_3IN_RATE'] = course_uma5.isin([1,2,3]).mean() if len(course_uma5) > 0 else 0
             else:
                 feature_dict['COURSE_UMA_5R_3IN_RATE'] = 0
             # --- その他の特徴量（例: 直近体重変化, 順位, 組み合わせ特徴量等）は未来情報を使わない形で既存通り ---
@@ -594,9 +573,6 @@ def train():
     # embedding用index化（SMOTE前）
     X_train_cont, X_train_cat, embedding_info = preprocess_for_embedding(X_train, train_df)
     X_test_cont, X_test_cat, _ = preprocess_for_embedding(X_test, test_df)
-    # NaN埋め
-    X_train_cont = np.nan_to_num(X_train_cont, nan=0)
-    X_test_cont = np.nan_to_num(X_test_cont, nan=0)
     # --- SMOTEでオーバーサンプリング（連続値のみ）---
     smote = SMOTE(random_state=42)
     X_train_cont_res, y_train_res = smote.fit_resample(X_train_cont, y_train)
@@ -626,10 +602,10 @@ def train():
     train_losses = []
     train_accuracies = []
     best_val_loss = float('inf')
-    patience = 1
+    patience = 2
     patience_counter = 0
-    for epoch in range(10):
-        print_progress_bar(epoch+1, 10, bar_length=100, prefix='進捗', suffix='')
+    for epoch in range(20):
+        print_progress_bar(epoch+1, 20, bar_length=100, prefix='進捗', suffix='')
         epoch_loss = 0
         correct = 0
         total = 0

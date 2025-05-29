@@ -56,21 +56,30 @@ FEATURES: List[Feature] = [
     Feature("SEIBETSU_CODE", "SEIBETSU_CODE", "性別コード", is_categorical=True),
     Feature("BATAIJU", "BATAIJU", "馬体重"),
     Feature("BATAIJU_DIFF", None, "直近体重変化"),
+    Feature("BATAIJU_RANK", None, "同レース内馬体重順位"),
+    Feature("NINKI_RANK", None, "同レース内人気順位"),
     Feature("FUTAN_JURYO", "FUTAN_JURYO", "負担重量"),
+    Feature("TANSHO_NINKIJUN", "TANSHO_NINKIJUN", "単勝人気順"),
     Feature("WAKUBAN", "WAKUBAN", "枠順", is_categorical=True),
     Feature("KYORI", None, "距離", depends_on="race_shosai"),
     Feature("TRACK_CODE", None, "芝/ダート（トラックコード）", is_categorical=True, depends_on="race_shosai"),
     Feature("SHUSSO_TOSU", None, "頭数", depends_on="race_shosai"),
+    # Feature("FUKUSHO_NINKIJUN", None, "複勝人気順", depends_on="umagoto_race_joho"),  # 一時的に除外
     Feature("KISHU_3IN_RATE", None, "騎手3着以内率", depends_on="kishu_stats"),
     Feature("TENKO_CODE", None, "馬場状態", is_categorical=True, depends_on="race_tenko"),
     Feature("CHOKYOSHI_3IN_RATE", None, "調教師3着以内率", depends_on="chokyoshi_stats"),
     Feature("FATHER_LINEAGE", None, "父系統ID", is_categorical=True, depends_on="uma_father"),
+    Feature("UMA_5R_3IN_RATE", None, "馬過去5走3着以内率", depends_on="uma_race"),
+    Feature("COURSE_3IN_RATE", None, "コース適性3着以内率", depends_on="uma_course"),
+    Feature("COURSE_UMA_5R_3IN_RATE", None, "コース×馬過去5走3着以内率", depends_on="uma_course_5r"),
+    Feature("FATHER_LINEAGE_TE", None, "父系統ターゲットエンコーディング"),
+    Feature("TRACK_CODE_TE", None, "トラックコードターゲットエンコーディング"),
     Feature("BATAIJU_KYORI", None, "馬体重×距離"),
     Feature("BAREI_FUTAN_JURYO", None, "馬齢×負担重量"),
+    Feature("KISHU_CHOKYOSHI_TE", None, "騎手×調教師ターゲットエンコーディング"),
+    Feature("UMA_COURSE_TE", None, "馬×コースターゲットエンコーディング"),
     Feature("RACE_KANKAKU", None, "レース間隔（日数）"),
-    Feature("TENKO_FINE", None, "馬場状態（良=1, それ以外=0"),
-    Feature("ZENSHO_ICHIAKUMA_SA", None, "前走一着馬との秒数差"),
-    Feature("ZENSHO_GYAKUJUN", None, "前走逆順順位"),
+    Feature("TENKO_FINE", None, "馬場状態（良=1, それ以外=0）"),
 ]
 
 # データ抽出期間（日数）
@@ -324,32 +333,13 @@ def fetch_data():
             else:
                 bataiju_diff = 0
             feature_dict['BATAIJU_DIFF'] = bataiju_diff
-            # --- 追加: 前走一着馬との秒数差・前走逆順順位 ---
-            # 前走レースを特定
-            uma_hist = ref[ref['KETTO_TOROKU_BANGO'] == ketto_toroku_bango].sort_values('RACE_DATE')
-            if len(uma_hist) > 0:
-                zensho = uma_hist.iloc[-1]
-                zensho_race_code = zensho['RACE_CODE']
-                # 前走レースの全馬データ
-                zensho_race = ref[ref['RACE_CODE'] == zensho_race_code]
-                # 秒数差
-                try:
-                    my_time = float(zensho['RACE_TIME']) if 'RACE_TIME' in zensho and zensho['RACE_TIME'] not in [None, '', 'nan'] else None
-                    ichaku_time = zensho_race[zensho_race['KAKUTEI_CHAKUJUN'] == '1']['RACE_TIME']
-                    ichaku_time = float(ichaku_time.iloc[0]) if len(ichaku_time) > 0 else None
-                    feature_dict['ZENSHO_ICHIAKUMA_SA'] = my_time - ichaku_time if my_time is not None and ichaku_time is not None else 0
-                except:
-                    feature_dict['ZENSHO_ICHIAKUMA_SA'] = 0
-                # 逆順順位
-                try:
-                    n_tousu = len(zensho_race)
-                    chaku = int(zensho['KAKUTEI_CHAKUJUN']) if str(zensho['KAKUTEI_CHAKUJUN']).isdigit() else None
-                    feature_dict['ZENSHO_GYAKUJUN'] = n_tousu - chaku + 1 if chaku is not None else 0
-                except:
-                    feature_dict['ZENSHO_GYAKUJUN'] = 0
-            else:
-                feature_dict['ZENSHO_ICHIAKUMA_SA'] = 0
-                feature_dict['ZENSHO_GYAKUJUN'] = 0
+            # 同レース内での馬体重順位
+            race_mask = (df['RACE_CODE'] == row['RACE_CODE'])
+            race_bataiju = df.loc[race_mask, 'BATAIJU']
+            feature_dict['BATAIJU_RANK'] = race_bataiju.rank(ascending=False)[i] if not np.isnan(row['BATAIJU']) else 0
+            # 同レース内での人気順位
+            race_ninki = df.loc[race_mask, 'TANSHO_NINKIJUN']
+            feature_dict['NINKI_RANK'] = race_ninki.rank(ascending=True)[i] if not np.isnan(row['TANSHO_NINKIJUN']) else 0
             X.append([feature_dict[f.name] for f in FEATURES])
             chaku = int(row.iloc[4]) if len(row) > 4 else 0
             y.append(1 if chaku in [1,2,3] else 0)
@@ -389,11 +379,11 @@ class DQN(nn.Module):
             nn.Linear(input_dim + emb_total_dim, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3),
             nn.Linear(64, 32),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.3),
             nn.Linear(32, output_dim)
         )
     def forward(self, x_cont, x_cat):
@@ -594,9 +584,6 @@ def train():
     # embedding用index化（SMOTE前）
     X_train_cont, X_train_cat, embedding_info = preprocess_for_embedding(X_train, train_df)
     X_test_cont, X_test_cat, _ = preprocess_for_embedding(X_test, test_df)
-    # NaN埋め
-    X_train_cont = np.nan_to_num(X_train_cont, nan=0)
-    X_test_cont = np.nan_to_num(X_test_cont, nan=0)
     # --- SMOTEでオーバーサンプリング（連続値のみ）---
     smote = SMOTE(random_state=42)
     X_train_cont_res, y_train_res = smote.fit_resample(X_train_cont, y_train)
@@ -626,10 +613,10 @@ def train():
     train_losses = []
     train_accuracies = []
     best_val_loss = float('inf')
-    patience = 1
+    patience = 2
     patience_counter = 0
-    for epoch in range(10):
-        print_progress_bar(epoch+1, 10, bar_length=100, prefix='進捗', suffix='')
+    for epoch in range(20):
+        print_progress_bar(epoch+1, 20, bar_length=100, prefix='進捗', suffix='')
         epoch_loss = 0
         correct = 0
         total = 0
